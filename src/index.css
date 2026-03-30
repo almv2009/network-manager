@@ -10,4 +10,19 @@ body,
 
 body {
   margin: 0;
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+@layer components {
+  .input,
+  .textarea,
+  .select {
+    @apply block w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 shadow-sm outline-none transition;
+    @apply focus:border-blue-500 focus:ring-4 focus:ring-blue-100;
+  }
+
+  .textarea {
+    @apply min-h-[120px];
+  }
 }
