@@ -2138,7 +2138,7 @@ export default function App() {
                 </details>
               </Card>
 
-              <div className="grid gap-6 xl:grid-cols-[1.35fr_0.95fr]">
+              <div className="space-y-6">
                 <Card title="Worst Case Scenario">
                   <div className="space-y-3">
                     <p className="text-sm text-slate-600">
