@@ -1,10 +1,24 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import { BrowserRouter } from "react-router-dom";
+import EnterpriseApp from "./App";
+import StandaloneApp from "../App_updated";
 import "./index.css";
+import { SessionProvider } from "./session";
+
+const runtimeMode =
+  ((import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_APP_RUNTIME || "standalone").trim();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    {runtimeMode === "enterprise" ? (
+      <BrowserRouter>
+        <SessionProvider>
+          <EnterpriseApp />
+        </SessionProvider>
+      </BrowserRouter>
+    ) : (
+      <StandaloneApp />
+    )}
   </React.StrictMode>
 );

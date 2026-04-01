@@ -1,0 +1,14 @@
+services:
+  network-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "4173:4173"
+    environment:
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:4173}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-nm_session}
+      SESSION_SECRET: ${SESSION_SECRET:-replace-me}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}

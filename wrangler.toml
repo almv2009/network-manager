@@ -1,0 +1,15 @@
+name = "network-manager"
+compatibility_date = "2026-04-01"
+pages_build_output_dir = "./dist"
+
+# Customer-owned bindings. Replace with the organization's own resources.
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "network-manager-db"
+# database_id = "replace-with-d1-database-id"
+# preview_database_id = "replace-with-d1-preview-id"
+
+# [[r2_buckets]]
+# binding = "DOCUMENTS_BUCKET"
+# bucket_name = "network-manager-documents"
+# preview_bucket_name = "network-manager-documents-preview"
