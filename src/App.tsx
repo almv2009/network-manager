@@ -763,7 +763,7 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+    <section className="app-card rounded-3xl border shadow-sm">
       {(title || right) && (
         <div className="flex items-center justify-between gap-4 px-6 py-5">
           {title ? <h2 className="text-xl font-semibold text-slate-900">{title}</h2> : <div />}
@@ -803,7 +803,7 @@ function Metric({
   helper: string;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="app-metric rounded-3xl border p-5 shadow-sm">
       <div className="text-sm font-medium text-slate-500">{label}</div>
       <div className="mt-2 text-2xl font-semibold text-slate-900">{value}</div>
       <div className="mt-1 text-sm text-slate-500">{helper}</div>
@@ -813,13 +813,13 @@ function Metric({
 
 function SaveBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
   return (
-    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+    <div className="app-banner rounded-2xl border px-4 py-3 text-sm">
       <div className="flex items-center justify-between gap-3">
         <span>{message}</span>
         <button
           type="button"
           onClick={onDismiss}
-          className="rounded-xl border border-emerald-200 bg-white px-3 py-1 text-xs font-medium text-emerald-700"
+          className="app-secondary-button rounded-xl border bg-white px-3 py-1 text-xs font-medium"
         >
           Dismiss
         </button>
@@ -842,7 +842,7 @@ function SectionActions({
       <button
         type="button"
         onClick={onSave}
-        className="rounded-2xl bg-emerald-600 px-4 py-3 font-medium text-white transition hover:bg-emerald-700"
+        className="app-primary-button rounded-2xl px-4 py-3 font-medium transition"
       >
         {saveLabel}
       </button>
@@ -850,7 +850,7 @@ function SectionActions({
         <button
           type="button"
           onClick={onReset}
-          className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-medium text-slate-700 transition hover:bg-slate-50"
+          className="app-secondary-button rounded-2xl border bg-white px-4 py-3 font-medium transition"
         >
           Reset section
         </button>
@@ -1369,13 +1369,13 @@ export default function App() {
   const safeguardingTone = getScaleTone(data.safeguardingScale);
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-7xl p-4 md:p-8">
+    <div className="nm-app min-h-screen bg-slate-100">
+      <div className="nm-app-shell mx-auto max-w-7xl p-4 md:p-8">
         <div className="space-y-6">
-          <section className="rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
+          <section className="nm-hero rounded-3xl border px-6 py-5 shadow-sm">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full border border-teal-200 bg-teal-50 p-2">
+                <div className="nm-brand-mark flex h-14 w-14 items-center justify-center rounded-full border p-2">
                   <img src="/sgt-logo.png" alt="SgT logo" className="h-full w-full object-contain" />
                 </div>
                 <div>
@@ -1385,7 +1385,7 @@ export default function App() {
                   </p>
                 </div>
               </div>
-              <div className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-700">
+              <div className="nm-mode-badge inline-flex items-center rounded-full border px-4 py-2 text-sm font-medium">
                 Practitioner View
               </div>
             </div>
@@ -1393,15 +1393,15 @@ export default function App() {
 
           {banner ? <SaveBanner message={banner} onDismiss={() => setBanner("")} /> : null}
 
-          <section className="rounded-3xl border border-slate-200 bg-white p-2 shadow-sm">
+          <section className="nm-tabbar rounded-3xl border p-2 shadow-sm">
             <div className="scrollbar-hide flex min-w-max gap-2 overflow-x-auto">
               {tabs.map((tab) => (
                 <button
                   key={tab.key}
                   type="button"
                   onClick={() => setActiveTab(tab.key)}
-                  className={`rounded-2xl px-4 py-3 text-sm font-medium transition ${
-                    activeTab === tab.key ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                  className={`nm-tab rounded-2xl px-4 py-3 text-sm font-medium transition ${
+                    activeTab === tab.key ? "nm-tab-active" : "nm-tab-idle"
                   }`}
                 >
                   {tab.label}
