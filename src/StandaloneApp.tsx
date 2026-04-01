@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type TabKey =
   | "case-status"
@@ -715,6 +715,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("case-status");
   const [data, setData] = useState<AppData>(loadInitialData);
   const [banner, setBanner] = useState("");
+  const closureDocumentInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -918,14 +919,37 @@ export default function App() {
     }));
   };
 
-  const addClosureDocument = () => {
-    setData((current) => ({
-      ...current,
-      closureDocuments: [
-        ...current.closureDocuments,
-        { id: makeId("doc"), name: "" },
-      ],
-    }));
+  const addClosureDocumentsFromFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const selectedDocs = Array.from(files)
+      .map((file) => file.name.trim())
+      .filter(Boolean);
+    if (selectedDocs.length === 0) return;
+
+    setData((current) => {
+      const existingNames = new Set(
+        current.closureDocuments
+          .map((item) => item.name.trim().toLowerCase())
+          .filter(Boolean),
+      );
+
+      const newItems = selectedDocs
+        .filter((name) => !existingNames.has(name.toLowerCase()))
+        .map((name) => ({ id: makeId("doc"), name }));
+
+      if (newItems.length === 0) {
+        return current;
+      }
+
+      return {
+        ...current,
+        closureDocuments: [...current.closureDocuments, ...newItems],
+      };
+    });
+
+    setBanner(
+      `${selectedDocs.length} closure document${selectedDocs.length === 1 ? "" : "s"} added from this device.`,
+    );
   };
 
   const removeClosureDocument = (id: string) => {
@@ -2217,7 +2241,7 @@ export default function App() {
                   <div className="flex flex-wrap gap-3">
                     <button
                       type="button"
-                      onClick={addClosureDocument}
+                      onClick={() => closureDocumentInputRef.current?.click()}
                       className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
                     >
                       Add closure document
@@ -2243,6 +2267,16 @@ export default function App() {
                     Upload or list all relevant closure documents so the family
                     and network can access them for reference after CPS closure.
                   </p>
+                  <input
+                    ref={closureDocumentInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      addClosureDocumentsFromFiles(event.target.files);
+                      event.target.value = "";
+                    }}
+                  />
                   <div className="mt-4 grid gap-3">
                     {data.closureDocuments.map((doc) => (
                       <div
