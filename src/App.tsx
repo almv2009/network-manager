@@ -96,6 +96,8 @@ type FireDrillItem = {
 type DocumentItem = {
   id: string;
   name: string;
+  generatedFromLabel?: string;
+  generatedFromPhase?: PlanningPhaseKey;
 };
 
 type AppointmentStatus = "Scheduled" | "Completed";
@@ -1211,7 +1213,15 @@ export default function App() {
       }
       return {
         ...current,
-        closureDocuments: [...current.closureDocuments, { id: makeId("doc"), name: documentName }],
+        closureDocuments: [
+          ...current.closureDocuments,
+          {
+            id: makeId("doc"),
+            name: documentName,
+            generatedFromLabel: layer.heading,
+            generatedFromPhase: phaseKey,
+          },
+        ],
       };
     });
     setBanner(`${layer.heading} snapshot added to closure documents.`);
@@ -2279,7 +2289,21 @@ export default function App() {
                   <div className="mt-4 grid gap-3">
                     {data.closureDocuments.map((doc) => (
                       <div key={doc.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 md:flex-row md:items-center">
-                        <input value={doc.name} onChange={(e) => updateClosureDocument(doc.id, e.target.value)} className="input" placeholder="Enter closure document name or reference" />
+                        <div className="flex-1 space-y-2">
+                          <input value={doc.name} onChange={(e) => updateClosureDocument(doc.id, e.target.value)} className="input" placeholder="Enter closure document name or reference" />
+                          {doc.generatedFromLabel ? (
+                            <div className="flex flex-wrap gap-2">
+                              <StatusBadge className="border border-blue-200 bg-blue-50 text-blue-700">
+                                Generated from {doc.generatedFromLabel}
+                              </StatusBadge>
+                              {doc.generatedFromPhase ? (
+                                <StatusBadge className="border border-slate-200 bg-slate-50 text-slate-700">
+                                  {getPlanningPhaseLabel(doc.generatedFromPhase)}
+                                </StatusBadge>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
                         <button
                           type="button"
                           onClick={() => removeClosureDocument(doc.id)}
