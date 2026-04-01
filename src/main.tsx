@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import EnterpriseApp from "./App";
-import StandaloneApp from "../App_updated";
+import StandaloneApp from "./StandaloneApp";
 import "./index.css";
 import { SessionProvider } from "./session";
 
