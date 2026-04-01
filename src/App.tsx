@@ -430,11 +430,17 @@ function Field({
   );
 }
 
-function ProgressBar({ value }: { value: number }) {
+function ProgressBar({
+  value,
+  barClass = "bg-blue-600",
+}: {
+  value: number;
+  barClass?: string;
+}) {
   return (
     <div className="h-3 w-full overflow-hidden rounded-full bg-slate-200">
       <div
-        className="h-full rounded-full bg-blue-600"
+        className={`h-full rounded-full transition-all ${barClass}`}
         style={{ width: `${value}%` }}
       />
     </div>
@@ -500,6 +506,39 @@ function splitLines(text: string) {
     .filter(Boolean);
 }
 
+function getScaleTone(value: number, max: number) {
+  const normalized = max === 10 ? value : (value / max) * 10;
+  if (normalized <= 4) {
+    return {
+      barClass: "bg-rose-500",
+      textClass: "text-rose-700",
+      badgeClass: "border border-rose-200 bg-rose-50 text-rose-700",
+      label: "Needs attention",
+    };
+  }
+  if (normalized <= 7) {
+    return {
+      barClass: "bg-amber-500",
+      textClass: "text-amber-700",
+      badgeClass: "border border-amber-200 bg-amber-50 text-amber-700",
+      label: "Developing",
+    };
+  }
+  return {
+    barClass: "bg-emerald-500",
+    textClass: "text-emerald-700",
+    badgeClass: "border border-emerald-200 bg-emerald-50 text-emerald-700",
+    label: "Strong",
+  };
+}
+
+function getScaleTrackClass(value: number, max: number) {
+  const normalized = max === 10 ? value : (value / max) * 10;
+  if (normalized <= 4) return "range-track-red";
+  if (normalized <= 7) return "range-track-amber";
+  return "range-track-green";
+}
+
 function getClosureStatusClasses(status: AppData["caseClosureStatus"]) {
   if (status === "Closed to CPS") {
     return "border-emerald-200 bg-emerald-50 text-emerald-800";
@@ -521,6 +560,16 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
+
+  const planStabilityTone = useMemo(
+    () => getScaleTone(data.planStability, 100),
+    [data.planStability],
+  );
+
+  const safeguardingScaleTone = useMemo(
+    () => getScaleTone(data.safeguardingScale, 10),
+    [data.safeguardingScale],
+  );
 
   const continuityReadiness = useMemo(() => {
     const avg = Math.round(
@@ -846,8 +895,12 @@ export default function App() {
           <section className="rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full border border-teal-200 bg-teal-50">
-                  <div className="text-2xl">🛡️</div>
+                <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-teal-200 bg-white shadow-sm">
+                  <img
+                    src="/sgt-logo.png"
+                    alt="SgT logo"
+                    className="h-11 w-11 object-contain"
+                  />
                 </div>
                 <div>
                   <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
@@ -894,16 +947,6 @@ export default function App() {
                   </Field>
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-sm font-medium text-slate-700">
-                    This workspace is built for one family and its safeguarding
-                    network.
-                  </p>
-                  <p className="mt-2 text-sm text-slate-600">
-                    It supports active CPS involvement, transition planning, and
-                    long-term family and network use after formal closure.
-                  </p>
-                </div>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -1088,13 +1131,20 @@ export default function App() {
                     </Field>
 
                     <div className="rounded-2xl border border-slate-200 p-4">
-                      <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center justify-between gap-3 text-sm">
                         <span className="font-medium text-slate-700">
                           Plan Stability
                         </span>
-                        <span className="font-semibold text-slate-900">
-                          {data.planStability}%
-                        </span>
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${planStabilityTone.badgeClass}`}
+                          >
+                            {planStabilityTone.label}
+                          </span>
+                          <span className={`font-semibold ${planStabilityTone.textClass}`}>
+                            {data.planStability}%
+                          </span>
+                        </div>
                       </div>
                       <div className="mt-3 space-y-3">
                         <input
@@ -1105,9 +1155,15 @@ export default function App() {
                           onChange={(e) =>
                             updateField("planStability", Number(e.target.value))
                           }
-                          className="w-full"
+                          className={`range-input w-full ${getScaleTrackClass(
+                            data.planStability,
+                            100,
+                          )}`}
                         />
-                        <ProgressBar value={data.planStability} />
+                        <ProgressBar
+                          value={data.planStability}
+                          barClass={planStabilityTone.barClass}
+                        />
                       </div>
                     </div>
 
@@ -1178,8 +1234,15 @@ export default function App() {
                           reliability.
                         </p>
                       </div>
-                      <div className="text-2xl font-semibold text-slate-900">
-                        {data.safeguardingScale}/10
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${safeguardingScaleTone.badgeClass}`}
+                        >
+                          {safeguardingScaleTone.label}
+                        </span>
+                        <div className={`text-2xl font-semibold ${safeguardingScaleTone.textClass}`}>
+                          {data.safeguardingScale}/10
+                        </div>
                       </div>
                     </div>
 
@@ -1196,17 +1259,26 @@ export default function App() {
                             Number(e.target.value),
                           )
                         }
-                        className="w-full"
+                        className={`range-input w-full ${getScaleTrackClass(
+                          data.safeguardingScale,
+                          10,
+                        )}`}
                       />
                       <div className="range-scale-labels">
-                        <span className="range-scale-label">
-                          0, Unsafe and unstable
+                        <span className="range-scale-label text-rose-600">
+                          0 to 4, Needs attention
                         </span>
-                        <span className="range-scale-label">
-                          10, Strong and sustainable safeguarding
+                        <span className="range-scale-label text-amber-600">
+                          5 to 7, Developing
+                        </span>
+                        <span className="range-scale-label text-emerald-600">
+                          8 to 10, Strong
                         </span>
                       </div>
-                      <ProgressBar value={data.safeguardingScale * 10} />
+                      <ProgressBar
+                        value={data.safeguardingScale * 10}
+                        barClass={safeguardingScaleTone.barClass}
+                      />
                     </div>
                   </div>
                 </div>
@@ -1381,15 +1453,34 @@ export default function App() {
                                   Number(e.target.value),
                                 )
                               }
-                              className="w-full"
+                              className={`range-input w-full ${getScaleTrackClass(
+                                person.reliability,
+                                100,
+                              )}`}
                             />
                             <div className="flex items-center justify-between text-sm">
                               <span className="text-slate-600">Score</span>
-                              <span className="font-medium text-slate-900">
-                                {person.reliability}%
-                              </span>
+                              <div className="flex items-center gap-3">
+                                <span
+                                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                    getScaleTone(person.reliability, 100).badgeClass
+                                  }`}
+                                >
+                                  {getScaleTone(person.reliability, 100).label}
+                                </span>
+                                <span
+                                  className={`font-medium ${
+                                    getScaleTone(person.reliability, 100).textClass
+                                  }`}
+                                >
+                                  {person.reliability}%
+                                </span>
+                              </div>
                             </div>
-                            <ProgressBar value={person.reliability} />
+                            <ProgressBar
+                              value={person.reliability}
+                              barClass={getScaleTone(person.reliability, 100).barClass}
+                            />
                           </div>
                         </Field>
                       </div>

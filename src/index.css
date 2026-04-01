@@ -35,3 +35,60 @@ body {
     white-space: nowrap;
   }
 }
+
+
+@layer components {
+  .range-input {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 0.5rem;
+    border-radius: 9999px;
+    background: #e2e8f0;
+    outline: none;
+  }
+
+  .range-input::-webkit-slider-runnable-track {
+    height: 0.5rem;
+    border-radius: 9999px;
+    background: var(--range-track-color, #94a3b8);
+  }
+
+  .range-input::-moz-range-track {
+    height: 0.5rem;
+    border-radius: 9999px;
+    background: var(--range-track-color, #94a3b8);
+  }
+
+  .range-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    margin-top: -0.375rem;
+    height: 1.25rem;
+    width: 1.25rem;
+    border-radius: 9999px;
+    border: 2px solid #ffffff;
+    background: var(--range-track-color, #94a3b8);
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
+  }
+
+  .range-input::-moz-range-thumb {
+    height: 1.25rem;
+    width: 1.25rem;
+    border-radius: 9999px;
+    border: 2px solid #ffffff;
+    background: var(--range-track-color, #94a3b8);
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
+  }
+
+  .range-track-red {
+    --range-track-color: #f43f5e;
+  }
+
+  .range-track-amber {
+    --range-track-color: #f59e0b;
+  }
+
+  .range-track-green {
+    --range-track-color: #10b981;
+  }
+}
