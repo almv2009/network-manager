@@ -421,6 +421,16 @@ function getPlanningPhaseLabel(phase: PlanningPhaseKey) {
   return "Long-term safeguarding";
 }
 
+function summarizePlanningActions(actions: string) {
+  return splitLines(actions).slice(0, 4);
+}
+
+function buildPlanningSnapshotDocumentName(layer: PlanningLayer, phase: PlanningPhaseKey) {
+  const phaseLabel = phase === "immediate" ? "Immediate safety" : phase === "intermediate" ? "Intermediate safeguarding" : "Long-term safeguarding";
+  const dateLabel = layer.promotedAt || layer.reviewDate || nowStamp();
+  return `${phaseLabel} snapshot - ${dateLabel}`;
+}
+
 const defaultData: AppData = {
   workspaceName: "Miller Family Workspace",
   workspaceMode: "Shared family and network access",
@@ -925,6 +935,17 @@ export default function StandaloneApp() {
     { key: "longTerm", field: "longTermPlan", color: "border-emerald-200 bg-emerald-50" },
   ];
   const activePlanningPhase = data.caseClosureStatus === "Closed to CPS" ? "longTerm" : data.currentPlanningPhase;
+  const retainedPlanningHistory = useMemo(
+    () =>
+      planningPhases
+        .filter((phase) => phase.key !== activePlanningPhase)
+        .map((phase) => ({
+          phase,
+          item: data[phase.field],
+        }))
+        .filter(({ item }) => Boolean(item.promotedAt) || data.caseClosureStatus === "Closed to CPS" || item.status === "Completed"),
+    [planningPhases, activePlanningPhase, data],
+  );
 
   const saveSection = (name: string) => setBanner(`${name} saved on this device.`);
 
@@ -1179,6 +1200,22 @@ export default function StandaloneApp() {
       ...current,
       closureDocuments: current.closureDocuments.filter((item) => item.id !== id),
     }));
+  };
+
+  const exportPlanningSnapshotToClosure = (phaseKey: PlanningPhaseKey) => {
+    const fieldMap = { immediate: "immediatePlan", intermediate: "intermediatePlan", longTerm: "longTermPlan" } as const;
+    const layer = data[fieldMap[phaseKey]];
+    const documentName = buildPlanningSnapshotDocumentName(layer, phaseKey);
+    setData((current) => {
+      if (current.closureDocuments.some((item) => item.name.trim().toLowerCase() === documentName.trim().toLowerCase())) {
+        return current;
+      }
+      return {
+        ...current,
+        closureDocuments: [...current.closureDocuments, { id: makeId("doc"), name: documentName }],
+      };
+    });
+    setBanner(`${layer.heading} snapshot added to closure documents.`);
   };
 
   const updateClosureAppointment = (id: string, field: keyof AppointmentItem, value: string) => {
@@ -1815,6 +1852,15 @@ export default function StandaloneApp() {
                                 Promote into {promotionTarget === "intermediate" ? "Intermediate" : "Long-term"}
                               </button>
                             ) : null}
+                            {phase.key !== activePlanningPhase ? (
+                              <button
+                                type="button"
+                                onClick={() => exportPlanningSnapshotToClosure(phase.key)}
+                                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                              >
+                                Add snapshot to closure docs
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                         <div className="mt-5 grid gap-4 md:grid-cols-2">
@@ -1859,6 +1905,65 @@ export default function StandaloneApp() {
                       </div>
                     );
                   })}
+                </div>
+              </Card>
+
+              <Card title="Retained Phase History">
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-600">
+                    Immediate and intermediate plans stay in the case as structured history after they are carried forward. They can be reopened for review and added to closure documents when a formal record is needed.
+                  </p>
+                  {retainedPlanningHistory.length ? (
+                    retainedPlanningHistory.map(({ phase, item }) => (
+                      <div key={phase.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-3">
+                              <p className="text-base font-semibold text-slate-900">{item.heading}</p>
+                              <StatusBadge className="border border-slate-200 bg-white text-slate-700">
+                                {item.promotedAt ? `Archived ${item.promotedAt}` : "Retained history"}
+                              </StatusBadge>
+                            </div>
+                            <p className="text-sm text-slate-600">{item.purpose}</p>
+                            <div className="grid gap-1 text-sm text-slate-700">
+                              <div><span className="font-medium text-slate-900">Members:</span> {item.members || "Not entered"}</div>
+                              <div><span className="font-medium text-slate-900">Review date:</span> {item.reviewDate || "Not set"}</div>
+                            </div>
+                            {summarizePlanningActions(item.actions).length ? (
+                              <div className="pt-1 text-sm text-slate-700">
+                                <div className="font-medium text-slate-900">Key actions</div>
+                                <div className="mt-2 space-y-1">
+                                  {summarizePlanningActions(item.actions).map((action) => (
+                                    <div key={action}>• {action}</div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setPlanningDetailPhase(phase.key)}
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              Open phase
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => exportPlanningSnapshotToClosure(phase.key)}
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              Add snapshot to closure docs
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                      Earlier planning phases will be retained here once they have been carried forward or the case reaches closure.
+                    </div>
+                  )}
                 </div>
               </Card>
 
