@@ -1093,7 +1093,7 @@ function CasePage() {
                           className={`flex items-start gap-3 rounded-2xl border px-3 py-3 text-sm ${
                             item.completed
                               ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                              : "border-slate-200 bg-slate-50 text-slate-700"
+                              : "border-rose-200 bg-rose-50 text-rose-900"
                           }`}
                         >
                           <input
@@ -1105,7 +1105,11 @@ function CasePage() {
                           />
                           <div className="min-w-0 flex-1">
                             <div className={item.completed ? "line-through opacity-80" : ""}>{item.text}</div>
-                            <div className="mt-1 text-xs font-medium uppercase tracking-[0.12em] text-slate-500">
+                            <div
+                              className={`mt-1 text-xs font-medium uppercase tracking-[0.12em] ${
+                                item.completed ? "text-emerald-700" : "text-rose-700"
+                              }`}
+                            >
                               {item.completed ? "Completed" : "Pending"}
                             </div>
                           </div>
