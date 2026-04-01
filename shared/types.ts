@@ -48,6 +48,20 @@ export type NextNetworkStep = {
   completed: boolean;
 };
 
+export type PlanningPhaseKey = "immediate" | "intermediate" | "longTerm";
+
+export type PlanningPhaseStatus = "Draft" | "Active" | "Being reviewed" | "Completed";
+
+export type PlanningLayer = {
+  heading: string;
+  purpose: string;
+  status: PlanningPhaseStatus;
+  actions: string;
+  members: string;
+  reviewDate: string;
+  promotedAt?: string;
+};
+
 export type RuleItem = {
   id: string;
   title: string;
@@ -126,6 +140,10 @@ export type CaseState = {
   currentGapsText: string;
   nextNetworkStepsText: string;
   nextNetworkSteps: NextNetworkStep[];
+  currentPlanningPhase: PlanningPhaseKey;
+  immediatePlan: PlanningLayer;
+  intermediatePlan: PlanningLayer;
+  longTermPlan: PlanningLayer;
   rules: RuleItem[];
   monitoringItems: MonitoringItem[];
   fireDrillScenario: string;

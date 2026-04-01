@@ -62,6 +62,19 @@ type PlanAdaptationItem = {
   updatedAt?: string;
 };
 
+type PlanningPhaseKey = "immediate" | "intermediate" | "longTerm";
+type PlanningPhaseStatus = "Draft" | "Active" | "Being reviewed" | "Completed";
+
+type PlanningLayer = {
+  heading: string;
+  purpose: string;
+  status: PlanningPhaseStatus;
+  actions: string;
+  members: string;
+  reviewDate: string;
+  promotedAt?: string;
+};
+
 type MonitoringItem = {
   id: string;
   text: string;
@@ -151,6 +164,10 @@ type AppData = {
   currentGapsText: string;
   nextNetworkStepsText: string;
   nextNetworkSteps: NextNetworkStep[];
+  currentPlanningPhase: PlanningPhaseKey;
+  immediatePlan: PlanningLayer;
+  intermediatePlan: PlanningLayer;
+  longTermPlan: PlanningLayer;
 
   rules: RuleItem[];
   planAdaptations: PlanAdaptationItem[];
@@ -323,6 +340,18 @@ function normalizePlanAdaptation(item: Partial<PlanAdaptationItem>): PlanAdaptat
   };
 }
 
+function normalizePlanningLayer(item: Partial<PlanningLayer> | undefined, fallback: PlanningLayer): PlanningLayer {
+  return {
+    heading: item?.heading || fallback.heading,
+    purpose: item?.purpose || fallback.purpose,
+    status: (item?.status as PlanningPhaseStatus) || fallback.status,
+    actions: item?.actions || fallback.actions,
+    members: item?.members || fallback.members,
+    reviewDate: item?.reviewDate || fallback.reviewDate,
+    promotedAt: item?.promotedAt,
+  };
+}
+
 function normalizeAppointment(item: Partial<AppointmentItem>): AppointmentItem {
   return {
     id: item.id || makeId("appointment"),
@@ -373,6 +402,23 @@ function normalizeJournalEntry(item: Partial<JournalEntry>): JournalEntry {
     notifyTarget: (item.notifyTarget as JournalNotifyTarget) || "Network and caregivers",
     alertsSentAt: item.alertsSentAt,
   };
+}
+
+function mergeDistinctSegments(first: string, second: string, splitPattern: RegExp) {
+  return Array.from(
+    new Set(
+      [first, second]
+        .flatMap((value) => String(value || "").split(splitPattern))
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ).join(splitPattern.source.includes(",") ? ", " : "\n");
+}
+
+function getPlanningPhaseLabel(phase: PlanningPhaseKey) {
+  if (phase === "immediate") return "Immediate safety";
+  if (phase === "intermediate") return "Intermediate safeguarding";
+  return "Long-term safeguarding";
 }
 
 const defaultData: AppData = {
@@ -474,6 +520,38 @@ const defaultData: AppData = {
     createNextNetworkStep("Add backup contact for school-day emergencies"),
     createNextNetworkStep("Review network confidence in escalation process"),
   ],
+
+  currentPlanningPhase: "immediate",
+  immediatePlan: {
+    heading: "Immediate Safety Intervention",
+    purpose: "What must happen right now so the children are safe today or tonight.",
+    status: "Active",
+    actions: `Karen confirms this evening coverage
+Mary remains available as overnight backup
+Anna sends an early warning text if routines begin to weaken`,
+    members: "Karen, Mary, Anna",
+    reviewDate: "2026-04-02",
+  },
+  intermediatePlan: {
+    heading: "Intermediate Safeguarding Plan",
+    purpose: "The bridge between the immediate response and the long-term safeguarding plan.",
+    status: "Draft",
+    actions: `Add weekend backup cover
+Clarify the escalation wording for all network members
+Confirm short-term routines for school mornings and evenings`,
+    members: "Karen, Mary, Lisa, Anna",
+    reviewDate: "2026-04-10",
+  },
+  longTermPlan: {
+    heading: "Long-Term Safeguarding Plan",
+    purpose: "The enduring safeguarding arrangements that remain in place after closure.",
+    status: "Draft",
+    actions: `Agree durable safeguarding rules
+Confirm long-term network roles
+Build review and contingency arrangements for post-closure safeguarding`,
+    members: "Anna, Karen, Mary, Lisa, wider network",
+    reviewDate: "2026-05-02",
+  },
 
   rules: [
     {
@@ -634,6 +712,15 @@ function loadInitialData(): AppData {
           ? String(parsed.nextNetworkStepsText)
           : serializeNextNetworkSteps(nextNetworkSteps),
       nextNetworkSteps,
+      currentPlanningPhase:
+        (parsed.currentPlanningPhase as PlanningPhaseKey) ||
+        (parsed.caseClosureStatus === "Closed to CPS" ? "longTerm" : defaultData.currentPlanningPhase),
+      immediatePlan: normalizePlanningLayer(parsed.immediatePlan as Partial<PlanningLayer> | undefined, {
+        ...defaultData.immediatePlan,
+        actions: String(parsed.immediateActionsText ?? defaultData.immediatePlan.actions),
+      }),
+      intermediatePlan: normalizePlanningLayer(parsed.intermediatePlan as Partial<PlanningLayer> | undefined, defaultData.intermediatePlan),
+      longTermPlan: normalizePlanningLayer(parsed.longTermPlan as Partial<PlanningLayer> | undefined, defaultData.longTermPlan),
       rules: ((parsed.rules as Partial<RuleItem>[]) ?? defaultData.rules).map(normalizeRule),
       planAdaptations: ((parsed.planAdaptations as Partial<PlanAdaptationItem>[]) ?? defaultData.planAdaptations).map(normalizePlanAdaptation),
       monitoringItems: (parsed.monitoringItems as MonitoringItem[]) ?? defaultData.monitoringItems,
@@ -782,11 +869,18 @@ export default function StandaloneApp() {
   const [activeTab, setActiveTab] = useState<TabKey>("case-status");
   const [data, setData] = useState<AppData>(loadInitialData);
   const [banner, setBanner] = useState("");
+  const [planningDetailPhase, setPlanningDetailPhase] = useState<PlanningPhaseKey>(
+    data.caseClosureStatus === "Closed to CPS" ? "longTerm" : data.currentPlanningPhase,
+  );
   const closureDocumentInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
+
+  useEffect(() => {
+    setPlanningDetailPhase(data.caseClosureStatus === "Closed to CPS" ? "longTerm" : data.currentPlanningPhase);
+  }, [data.caseClosureStatus, data.currentPlanningPhase]);
 
   const confirmedNetworkMembers = useMemo(
     () => data.networkMembers.filter((member) => member.confirmed && member.name.trim()),
@@ -825,8 +919,76 @@ export default function StandaloneApp() {
     () => data.fireDrills.filter((item) => item.status === "Completed"),
     [data.fireDrills],
   );
+  const planningPhases: { key: PlanningPhaseKey; field: "immediatePlan" | "intermediatePlan" | "longTermPlan"; color: string }[] = [
+    { key: "immediate", field: "immediatePlan", color: "border-rose-200 bg-rose-50" },
+    { key: "intermediate", field: "intermediatePlan", color: "border-amber-200 bg-amber-50" },
+    { key: "longTerm", field: "longTermPlan", color: "border-emerald-200 bg-emerald-50" },
+  ];
+  const activePlanningPhase = data.caseClosureStatus === "Closed to CPS" ? "longTerm" : data.currentPlanningPhase;
 
   const saveSection = (name: string) => setBanner(`${name} saved on this device.`);
+
+  const updatePlanningLayer = (field: "immediatePlan" | "intermediatePlan" | "longTermPlan", patch: Partial<PlanningLayer>) => {
+    setData((current) => ({ ...current, [field]: { ...current[field], ...patch } }));
+  };
+
+  const promotePlanningLayer = (from: PlanningPhaseKey, to: PlanningPhaseKey) => {
+    const fieldMap = { immediate: "immediatePlan", intermediate: "intermediatePlan", longTerm: "longTermPlan" } as const;
+    const sourceField = fieldMap[from];
+    const targetField = fieldMap[to];
+    setData((current) => {
+      const source = current[sourceField];
+      const target = current[targetField];
+      return {
+        ...current,
+        currentPlanningPhase: to,
+        [sourceField]: {
+          ...source,
+          status: "Completed",
+          promotedAt: source.promotedAt || nowStamp(),
+        },
+        [targetField]: {
+          ...target,
+          status: target.status === "Completed" ? target.status : "Active",
+          actions: mergeDistinctSegments(target.actions, source.actions, /\n+/),
+          members: mergeDistinctSegments(target.members, source.members, /,|\n/),
+        },
+      };
+    });
+    setPlanningDetailPhase(to);
+    setBanner(`Planning content promoted from ${getPlanningPhaseLabel(from)} to ${getPlanningPhaseLabel(to)}.`);
+  };
+
+  const updateClosureStatus = (status: AppData["caseClosureStatus"]) => {
+    setData((current) => {
+      if (status !== "Closed to CPS") {
+        return {
+          ...current,
+          caseClosureStatus: status,
+        };
+      }
+      return {
+        ...current,
+        caseClosureStatus: status,
+        currentPlanningPhase: "longTerm",
+        immediatePlan: {
+          ...current.immediatePlan,
+          status: "Completed",
+          promotedAt: current.immediatePlan.promotedAt || nowStamp(),
+        },
+        intermediatePlan: {
+          ...current.intermediatePlan,
+          status: "Completed",
+          promotedAt: current.intermediatePlan.promotedAt || nowStamp(),
+        },
+        longTermPlan: {
+          ...current.longTermPlan,
+          status: current.longTermPlan.status === "Completed" ? "Completed" : "Active",
+        },
+      };
+    });
+    setPlanningDetailPhase(status === "Closed to CPS" ? "longTerm" : data.currentPlanningPhase);
+  };
 
   const updateField = <K extends keyof AppData>(key: K, value: AppData[K]) => {
     setData((current) => ({ ...current, [key]: value }));
@@ -1568,6 +1730,138 @@ export default function StandaloneApp() {
 
           {activeTab === "planning" && (
             <div className="space-y-6">
+              <Card title="Safeguarding Planning Flow">
+                <div className="space-y-5">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">Planning progression</p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          Immediate safety is short-lived, intermediate safeguarding is the bridge, and long-term safeguarding is the only active plan after closure.
+                        </p>
+                      </div>
+                      <StatusBadge className="border border-blue-200 bg-blue-50 text-blue-700">
+                        Current active phase: {getPlanningPhaseLabel(activePlanningPhase)}
+                      </StatusBadge>
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      {planningPhases.map((phase, index) => {
+                        const item = data[phase.field];
+                        const isActive = activePlanningPhase === phase.key;
+                        const isOpen = planningDetailPhase === phase.key;
+                        const archived = Boolean(item.promotedAt) && !isActive;
+                        return (
+                          <button
+                            key={phase.key}
+                            type="button"
+                            onClick={() => setPlanningDetailPhase(phase.key)}
+                            className={`rounded-2xl border p-4 text-left transition ${phase.color} ${isOpen ? "ring-2 ring-blue-200" : "hover:border-slate-300"}`}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-sm font-semibold text-slate-900">
+                                {index + 1}. {item.heading}
+                              </span>
+                              <StatusBadge className={isActive ? "border border-blue-200 bg-white text-blue-700" : "border border-slate-200 bg-white text-slate-700"}>
+                                {isActive ? "Current" : archived ? "History" : item.status}
+                              </StatusBadge>
+                            </div>
+                            <p className="mt-2 text-sm text-slate-700">{item.purpose}</p>
+                            <div className="mt-3 grid gap-2 text-xs text-slate-600">
+                              <div>Review: {item.reviewDate || "Not set"}</div>
+                              <div>{item.members ? `${item.members.split(",").map((member) => member.trim()).filter(Boolean).length} key members` : "Key members not listed"}</div>
+                              <div>{item.actions ? `${splitLines(item.actions).length} live actions` : "No actions entered yet"}</div>
+                              {archived && item.promotedAt ? <div>Archived on {item.promotedAt}</div> : null}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {planningPhases.map((phase, index) => {
+                    if (planningDetailPhase !== phase.key) return null;
+                    const item = data[phase.field];
+                    const nextPhase = phase.key === "immediate" ? "intermediate" : phase.key === "intermediate" ? "longTerm" : null;
+                    const promotionTarget = nextPhase === "intermediate" || nextPhase === "longTerm" ? nextPhase : null;
+                    const canPromote = Boolean(promotionTarget) && data.caseClosureStatus !== "Closed to CPS";
+                    return (
+                      <div key={phase.key} className={`rounded-2xl border p-5 ${phase.color}`}>
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div>
+                            <div className="flex items-center gap-3">
+                              <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-900">Phase {index + 1}</span>
+                              <StatusBadge className="border border-slate-200 bg-white text-slate-700">{activePlanningPhase === phase.key ? "Current active phase" : item.status}</StatusBadge>
+                            </div>
+                            <h3 className="mt-3 text-xl font-semibold text-slate-900">{item.heading}</h3>
+                            <p className="mt-2 text-sm text-slate-700">{item.purpose}</p>
+                          </div>
+                          <div className="flex flex-wrap gap-3">
+                            <select
+                              value={item.status}
+                              onChange={(e) => updatePlanningLayer(phase.field, { status: e.target.value as PlanningPhaseStatus })}
+                              className="input min-w-[180px]"
+                            >
+                              <option>Draft</option>
+                              <option>Active</option>
+                              <option>Being reviewed</option>
+                              <option>Completed</option>
+                            </select>
+                            {canPromote ? (
+                              <button
+                                type="button"
+                                onClick={() => promotionTarget && promotePlanningLayer(phase.key, promotionTarget)}
+                                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                              >
+                                Promote into {promotionTarget === "intermediate" ? "Intermediate" : "Long-term"}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="mt-5 grid gap-4 md:grid-cols-2">
+                          <Field label="Review date">
+                            <input
+                              value={item.reviewDate}
+                              onChange={(e) => updatePlanningLayer(phase.field, { reviewDate: e.target.value })}
+                              className="input"
+                            />
+                          </Field>
+                          <Field label="Key members involved">
+                            <input
+                              value={item.members}
+                              onChange={(e) => updatePlanningLayer(phase.field, { members: e.target.value })}
+                              className="input"
+                            />
+                          </Field>
+                        </div>
+                        <div className="mt-4">
+                          <Field label="Actions, arrangements, or commitments for this phase">
+                            <textarea
+                              value={item.actions}
+                              onChange={(e) => updatePlanningLayer(phase.field, { actions: e.target.value })}
+                              className="textarea"
+                            />
+                          </Field>
+                        </div>
+                        {phase.key !== activePlanningPhase ? (
+                          <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+                            {phase.key === "longTerm" && data.caseClosureStatus === "Closed to CPS"
+                              ? "This is the only active safeguarding plan after closure. Immediate and intermediate planning phases are retained as history."
+                              : item.promotedAt
+                                ? `This phase is retained as history after being carried forward on ${item.promotedAt}.`
+                                : "This phase is not the primary live plan right now."}
+                          </div>
+                        ) : null}
+                        {phase.key === "longTerm" && data.caseClosureStatus === "Closed to CPS" ? (
+                          <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-4 text-sm text-emerald-800">
+                            This is the only active safeguarding plan after closure. Immediate and intermediate planning phases are retained as history.
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+
               <Card
                 title="Safeguarding Rules and Commitments"
                 right={
@@ -1980,7 +2274,7 @@ export default function StandaloneApp() {
                         <Field label="Update closure alert status">
                           <select
                             value={data.caseClosureStatus}
-                            onChange={(e) => updateField("caseClosureStatus", e.target.value as AppData["caseClosureStatus"])}
+                            onChange={(e) => updateClosureStatus(e.target.value as AppData["caseClosureStatus"])}
                             className="input"
                           >
                             <option>CPS active</option>

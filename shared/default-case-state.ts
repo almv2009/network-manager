@@ -65,6 +65,34 @@ export const defaultCaseState: CaseState = {
     makeNextNetworkStep("Confirm one additional backup contact"),
     makeNextNetworkStep("Review same-day escalation plan with all active members"),
   ],
+  currentPlanningPhase: "immediate",
+  immediatePlan: {
+    heading: "Immediate Safety Intervention",
+    purpose: "Short-lived urgent actions that hold safety right now with the smallest necessary network.",
+    status: "Active",
+    actions:
+      "Confirm tonight's safe cover\nKeep backup adult available for pressured routines\nUse the agreed same-day escalation wording if safety begins to drift",
+    members: "Primary caregiver, backup adult, lead worker",
+    reviewDate: "2026-04-02",
+  },
+  intermediatePlan: {
+    heading: "Intermediate Safeguarding Plan",
+    purpose: "The bridge between immediate safety arrangements and the enduring safeguarding plan.",
+    status: "Draft",
+    actions:
+      "Stabilise the weak routine points\nConfirm realistic backup cover\nTest whether the network can hold the plan without acute worker-led intervention",
+    members: "Primary caregiver, active network members, lead worker",
+    reviewDate: "2026-04-10",
+  },
+  longTermPlan: {
+    heading: "Long-Term Safeguarding Plan",
+    purpose: "The enduring safeguarding arrangements that remain active after closure.",
+    status: "Draft",
+    actions:
+      "Confirm durable rules and responsibilities\nSet review rhythm and escalation route\nMake sure the network can carry the plan after closure",
+    members: "Primary caregiver, active network members",
+    reviewDate: "2026-05-01",
+  },
   rules: [
     {
       id: makeId("rule"),

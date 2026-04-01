@@ -391,6 +391,23 @@ function normalizePlanningLayer(item: Partial<PlanningLayer> | undefined, fallba
   };
 }
 
+function mergeDistinctSegments(first: string, second: string, splitPattern: RegExp) {
+  return Array.from(
+    new Set(
+      [first, second]
+        .flatMap((value) => String(value || "").split(splitPattern))
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ).join(splitPattern.source.includes(",") ? ", " : "\n");
+}
+
+function getPlanningPhaseLabel(phase: PlanningPhaseKey) {
+  if (phase === "immediate") return "Immediate safety";
+  if (phase === "intermediate") return "Intermediate safeguarding";
+  return "Long-term safeguarding";
+}
+
 
 
 function normalizeJournalEntry(item: Partial<JournalEntry>): JournalEntry {
@@ -697,6 +714,15 @@ function loadInitialData(): AppData {
           ? String(parsed.nextNetworkStepsText)
           : serializeNextNetworkSteps(nextNetworkSteps),
       nextNetworkSteps,
+      currentPlanningPhase:
+        (parsed.currentPlanningPhase as PlanningPhaseKey) ||
+        (parsed.caseClosureStatus === "Closed to CPS" ? "longTerm" : defaultData.currentPlanningPhase),
+      immediatePlan: normalizePlanningLayer(parsed.immediatePlan as Partial<PlanningLayer> | undefined, {
+        ...defaultData.immediatePlan,
+        actions: String(parsed.immediateActionsText ?? defaultData.immediatePlan.actions),
+      }),
+      intermediatePlan: normalizePlanningLayer(parsed.intermediatePlan as Partial<PlanningLayer> | undefined, defaultData.intermediatePlan),
+      longTermPlan: normalizePlanningLayer(parsed.longTermPlan as Partial<PlanningLayer> | undefined, defaultData.longTermPlan),
       rules: ((parsed.rules as Partial<RuleItem>[]) ?? defaultData.rules).map(normalizeRule),
       planAdaptations: ((parsed.planAdaptations as Partial<PlanAdaptationItem>[]) ?? defaultData.planAdaptations).map(normalizePlanAdaptation),
       monitoringItems: (parsed.monitoringItems as MonitoringItem[]) ?? defaultData.monitoringItems,
@@ -845,11 +871,18 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("case-status");
   const [data, setData] = useState<AppData>(loadInitialData);
   const [banner, setBanner] = useState("");
+  const [planningDetailPhase, setPlanningDetailPhase] = useState<PlanningPhaseKey>(
+    data.caseClosureStatus === "Closed to CPS" ? "longTerm" : data.currentPlanningPhase,
+  );
   const closureDocumentInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
+
+  useEffect(() => {
+    setPlanningDetailPhase(data.caseClosureStatus === "Closed to CPS" ? "longTerm" : data.currentPlanningPhase);
+  }, [data.caseClosureStatus, data.currentPlanningPhase]);
 
   const confirmedNetworkMembers = useMemo(
     () => data.networkMembers.filter((member) => member.confirmed && member.name.trim()),
@@ -894,6 +927,7 @@ export default function App() {
     { key: "intermediate", field: "intermediatePlan", color: "border-amber-200 bg-amber-50" },
     { key: "longTerm", field: "longTermPlan", color: "border-emerald-200 bg-emerald-50" },
   ];
+  const activePlanningPhase = data.caseClosureStatus === "Closed to CPS" ? "longTerm" : data.currentPlanningPhase;
 
   const updatePlanningLayer = (field: "immediatePlan" | "intermediatePlan" | "longTermPlan", patch: Partial<PlanningLayer>) => {
     setData((current) => ({ ...current, [field]: { ...current[field], ...patch } }));
@@ -906,21 +940,51 @@ export default function App() {
     setData((current) => {
       const source = current[sourceField];
       const target = current[targetField];
-      const nextActions = [target.actions.trim(), source.actions.trim()].filter(Boolean).join("\n");
-      const nextMembers = [target.members.trim(), source.members.trim()].filter(Boolean).join(", ");
       return {
         ...current,
         currentPlanningPhase: to,
-        [sourceField]: { ...source, status: "Completed", promotedAt: nowStamp() },
+        [sourceField]: { ...source, status: "Completed", promotedAt: source.promotedAt || nowStamp() },
         [targetField]: {
           ...target,
           status: target.status === "Completed" ? target.status : "Active",
-          actions: nextActions,
-          members: nextMembers,
+          actions: mergeDistinctSegments(target.actions, source.actions, /\n+/),
+          members: mergeDistinctSegments(target.members, source.members, /,|\n/),
         },
       };
     });
-    setBanner(`Planning content promoted from ${from} to ${to}.`);
+    setPlanningDetailPhase(to);
+    setBanner(`Planning content promoted from ${getPlanningPhaseLabel(from)} to ${getPlanningPhaseLabel(to)}.`);
+  };
+
+  const updateClosureStatus = (status: AppData["caseClosureStatus"]) => {
+    setData((current) => {
+      if (status !== "Closed to CPS") {
+        return {
+          ...current,
+          caseClosureStatus: status,
+        };
+      }
+      return {
+        ...current,
+        caseClosureStatus: status,
+        currentPlanningPhase: "longTerm",
+        immediatePlan: {
+          ...current.immediatePlan,
+          status: "Completed",
+          promotedAt: current.immediatePlan.promotedAt || nowStamp(),
+        },
+        intermediatePlan: {
+          ...current.intermediatePlan,
+          status: "Completed",
+          promotedAt: current.intermediatePlan.promotedAt || nowStamp(),
+        },
+        longTermPlan: {
+          ...current.longTermPlan,
+          status: current.longTermPlan.status === "Completed" ? "Completed" : "Active",
+        },
+      };
+    });
+    setPlanningDetailPhase(status === "Closed to CPS" ? "longTerm" : data.currentPlanningPhase);
   };
 
   const saveSection = (name: string) => setBanner(`${name} saved on this device.`);
@@ -1674,37 +1738,56 @@ export default function App() {
                         <p className="mt-1 text-sm text-slate-600">Immediate safety is short-lived, intermediate safeguarding is the bridge, and long-term safeguarding is the only active plan after closure.</p>
                       </div>
                       <StatusBadge className="border border-blue-200 bg-blue-50 text-blue-700">
-                        Current active phase: {data.currentPlanningPhase === "immediate" ? "Immediate safety" : data.currentPlanningPhase === "intermediate" ? "Intermediate safeguarding" : "Long-term safeguarding"}
+                        Current active phase: {getPlanningPhaseLabel(activePlanningPhase)}
                       </StatusBadge>
                     </div>
                     <div className="mt-4 grid gap-3 md:grid-cols-3">
                       {planningPhases.map((phase, index) => {
                         const item = data[phase.field];
-                        const isActive = data.currentPlanningPhase === phase.key;
+                        const isActive = activePlanningPhase === phase.key;
+                        const isOpen = planningDetailPhase === phase.key;
+                        const archived = Boolean(item.promotedAt) && !isActive;
                         return (
-                          <div key={phase.key} className={`rounded-2xl border p-4 ${phase.color} ${isActive ? "ring-2 ring-blue-200" : ""}`}>
+                          <button
+                            key={phase.key}
+                            type="button"
+                            onClick={() => setPlanningDetailPhase(phase.key)}
+                            className={`rounded-2xl border p-4 text-left transition ${phase.color} ${isOpen ? "ring-2 ring-blue-200" : "hover:border-slate-300"}`}
+                          >
                             <div className="flex items-center justify-between gap-3">
                               <span className="text-sm font-semibold text-slate-900">{index + 1}. {item.heading}</span>
-                              <StatusBadge className={isActive ? "border border-blue-200 bg-white text-blue-700" : "border border-slate-200 bg-white text-slate-700"}>{item.status}</StatusBadge>
+                              <StatusBadge className={isActive ? "border border-blue-200 bg-white text-blue-700" : "border border-slate-200 bg-white text-slate-700"}>
+                                {isActive ? "Current" : archived ? "History" : item.status}
+                              </StatusBadge>
                             </div>
                             <p className="mt-2 text-sm text-slate-700">{item.purpose}</p>
-                            {item.promotedAt ? <p className="mt-2 text-xs text-slate-500">Archived on {item.promotedAt}</p> : null}
-                          </div>
+                            <div className="mt-3 grid gap-2 text-xs text-slate-600">
+                              <div>Review: {item.reviewDate || "Not set"}</div>
+                              <div>{item.members ? `${item.members.split(",").map((member) => member.trim()).filter(Boolean).length} key members` : "Key members not listed"}</div>
+                              <div>{item.actions ? `${splitLines(item.actions).length} live actions` : "No actions entered yet"}</div>
+                              {archived && item.promotedAt ? <div>Archived on {item.promotedAt}</div> : null}
+                            </div>
+                          </button>
                         );
                       })}
                     </div>
                   </div>
 
                   {planningPhases.map((phase, index) => {
+                    if (planningDetailPhase !== phase.key) return null;
                     const item = data[phase.field];
                     const nextPhase = phase.key === "immediate" ? "intermediate" : phase.key === "intermediate" ? "longTerm" : null;
+                    const promotionTarget = nextPhase === "intermediate" || nextPhase === "longTerm" ? nextPhase : null;
+                    const canPromote = Boolean(promotionTarget) && data.caseClosureStatus !== "Closed to CPS";
                     return (
                       <div key={phase.key} className={`rounded-2xl border p-5 ${phase.color}`}>
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                           <div>
                             <div className="flex items-center gap-3">
                               <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-900">Phase {index + 1}</span>
-                              <StatusBadge className="border border-slate-200 bg-white text-slate-700">{item.status}</StatusBadge>
+                              <StatusBadge className="border border-slate-200 bg-white text-slate-700">
+                                {activePlanningPhase === phase.key ? "Current active phase" : item.status}
+                              </StatusBadge>
                             </div>
                             <h3 className="mt-3 text-xl font-semibold text-slate-900">{item.heading}</h3>
                             <p className="mt-2 text-sm text-slate-700">{item.purpose}</p>
@@ -1716,9 +1799,9 @@ export default function App() {
                               <option>Being reviewed</option>
                               <option>Completed</option>
                             </select>
-                            {nextPhase ? (
-                              <button type="button" onClick={() => promotePlanningLayer(phase.key, nextPhase)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                                Promote into {nextPhase === "intermediate" ? "Intermediate" : "Long-term"}
+                            {canPromote ? (
+                              <button type="button" onClick={() => promotionTarget && promotePlanningLayer(phase.key, promotionTarget)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                                Promote into {promotionTarget === "intermediate" ? "Intermediate" : "Long-term"}
                               </button>
                             ) : null}
                           </div>
@@ -1736,6 +1819,15 @@ export default function App() {
                             <textarea value={item.actions} onChange={(e) => updatePlanningLayer(phase.field, { actions: e.target.value })} className="textarea" />
                           </Field>
                         </div>
+                        {phase.key !== activePlanningPhase ? (
+                          <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+                            {phase.key === "longTerm" && data.caseClosureStatus === "Closed to CPS"
+                              ? "This is the only active safeguarding plan after closure. Immediate and intermediate planning phases are retained as history."
+                              : item.promotedAt
+                                ? `This phase is retained as history after being carried forward on ${item.promotedAt}.`
+                                : "This phase is not the primary live plan right now."}
+                          </div>
+                        ) : null}
                         {phase.key === "longTerm" && data.caseClosureStatus === "Closed to CPS" ? (
                           <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-4 text-sm text-emerald-800">
                             This is the only active safeguarding plan after closure. Immediate and intermediate planning phases are retained as history.
@@ -2158,7 +2250,7 @@ export default function App() {
                         <Field label="Update closure alert status">
                           <select
                             value={data.caseClosureStatus}
-                            onChange={(e) => updateField("caseClosureStatus", e.target.value as AppData["caseClosureStatus"])}
+                            onChange={(e) => updateClosureStatus(e.target.value as AppData["caseClosureStatus"])}
                             className="input"
                           >
                             <option>CPS active</option>
