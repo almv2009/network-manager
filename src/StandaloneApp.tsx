@@ -21,6 +21,12 @@ type NetworkMember = {
   confirmed: boolean;
 };
 
+type NextNetworkStep = {
+  id: string;
+  text: string;
+  completed: boolean;
+};
+
 type TimelineEntry = {
   id: string;
   date: string;
@@ -105,6 +111,7 @@ type AppData = {
   networkMembers: NetworkMember[];
   currentGapsText: string;
   nextNetworkStepsText: string;
+  nextNetworkSteps: NextNetworkStep[];
 
   rules: RuleItem[];
 
@@ -169,6 +176,14 @@ function normalizeNetworkMember(member: Partial<NetworkMember>): NetworkMember {
     email: member.email || "",
     reliability: Math.max(0, Math.min(10, normalizedScore)),
     confirmed: Boolean(member.confirmed ?? (member.name && member.role)),
+  };
+}
+
+function createNextNetworkStep(text: string, completed = false, id = makeId("network-step")): NextNetworkStep {
+  return {
+    id,
+    text,
+    completed,
   };
 }
 
@@ -279,6 +294,11 @@ const defaultData: AppData = {
     "Weekend backup is not strong enough yet\nEscalation language needs to be simple and consistent\nOne additional overnight support option is recommended",
   nextNetworkStepsText:
     "Confirm whether Norma can cover Saturday evenings\nAdd backup contact for school-day emergencies\nReview network confidence in escalation process",
+  nextNetworkSteps: [
+    createNextNetworkStep("Confirm whether Norma can cover Saturday evenings"),
+    createNextNetworkStep("Add backup contact for school-day emergencies"),
+    createNextNetworkStep("Review network confidence in escalation process"),
+  ],
 
   rules: [
     {
@@ -424,6 +444,10 @@ function loadInitialData(): AppData {
   if (!raw) return defaultData;
   try {
     const parsed = JSON.parse(raw) as Partial<AppData>;
+    const nextNetworkSteps = normalizeNextNetworkSteps(
+      parsed.nextNetworkSteps,
+      parsed.nextNetworkStepsText ?? defaultData.nextNetworkStepsText,
+    );
     return {
       ...defaultData,
       ...parsed,
@@ -441,6 +465,11 @@ function loadInitialData(): AppData {
         parsed.closureDocuments ??
         (parsed as Partial<{ handoverDocs: DocumentItem[] }>).handoverDocs ??
         defaultData.closureDocuments,
+      nextNetworkStepsText:
+        parsed.nextNetworkStepsText && parsed.nextNetworkStepsText.trim()
+          ? parsed.nextNetworkStepsText
+          : serializeNextNetworkSteps(nextNetworkSteps),
+      nextNetworkSteps,
       changeLog: parsed.changeLog ?? defaultData.changeLog,
       journalEntries: parsed.journalEntries ?? defaultData.journalEntries,
     };
@@ -587,6 +616,55 @@ function splitLines(text: string) {
     .filter(Boolean);
 }
 
+function normalizeStepKey(text: string) {
+  return text.trim().toLowerCase();
+}
+
+function buildNextNetworkStepsFromText(
+  text: string,
+  existingSteps: NextNetworkStep[] = [],
+) {
+  const existingByKey = new Map(
+    existingSteps
+      .filter((item) => item.text.trim())
+      .map((item) => [normalizeStepKey(item.text), item] as const),
+  );
+
+  return splitLines(text).map((item) => {
+    const existing = existingByKey.get(normalizeStepKey(item));
+    if (existing) {
+      return { ...existing, text: item };
+    }
+    return createNextNetworkStep(item);
+  });
+}
+
+function normalizeNextNetworkSteps(
+  rawSteps: AppData["nextNetworkSteps"] | undefined,
+  fallbackText: string,
+) {
+  const normalized =
+    rawSteps
+      ?.map((item) =>
+        createNextNetworkStep(
+          String(item?.text || "").trim(),
+          Boolean(item?.completed),
+          item?.id || makeId("network-step"),
+        ),
+      )
+      .filter((item) => item.text) ?? [];
+
+  if (normalized.length > 0) return normalized;
+  return buildNextNetworkStepsFromText(fallbackText);
+}
+
+function serializeNextNetworkSteps(steps: NextNetworkStep[]) {
+  return steps
+    .map((item) => item.text.trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
 function getScaleTone(value: number, max: number) {
   const normalized = max === 10 ? value : (value / max) * 10;
   if (normalized <= 4) {
@@ -662,6 +740,14 @@ export default function App() {
     return Math.max(0, Math.min(10, Number(avg.toFixed(1))));
   }, [confirmedNetworkMembers, data.networkMembers]);
 
+  const nextNetworkStepSummary = useMemo(() => {
+    const completed = data.nextNetworkSteps.filter((item) => item.completed).length;
+    return {
+      completed,
+      pending: Math.max(0, data.nextNetworkSteps.length - completed),
+    };
+  }, [data.nextNetworkSteps]);
+
   const saveSection = (sectionName: string) => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     setBanner(`${sectionName} saved on this device.`);
@@ -669,6 +755,23 @@ export default function App() {
 
   const updateField = <K extends keyof AppData>(key: K, value: AppData[K]) => {
     setData((current) => ({ ...current, [key]: value }));
+  };
+
+  const updateNextNetworkStepsText = (value: string) => {
+    setData((current) => ({
+      ...current,
+      nextNetworkStepsText: value,
+      nextNetworkSteps: buildNextNetworkStepsFromText(value, current.nextNetworkSteps),
+    }));
+  };
+
+  const toggleNextNetworkStep = (id: string) => {
+    setData((current) => ({
+      ...current,
+      nextNetworkSteps: current.nextNetworkSteps.map((item) =>
+        item.id === id ? { ...item, completed: !item.completed } : item,
+      ),
+    }));
   };
 
   const updateNetworkMember = (
@@ -1732,9 +1835,7 @@ export default function App() {
                   >
                     <textarea
                       value={data.nextNetworkStepsText}
-                      onChange={(e) =>
-                        updateField("nextNetworkStepsText", e.target.value)
-                      }
+                      onChange={(e) => updateNextNetworkStepsText(e.target.value)}
                       className="textarea"
                     />
                   </Field>
@@ -1752,13 +1853,40 @@ export default function App() {
                     </div>
 
                     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="font-medium text-slate-900">
-                        Next steps preview
-                      </p>
-                      <div className="mt-3 space-y-2 text-sm text-slate-700">
-                        {splitLines(data.nextNetworkStepsText).map((item) => (
-                          <div key={item}>• {item}</div>
-                        ))}
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-medium text-slate-900">Next steps preview</p>
+                        <div className="text-xs font-medium text-slate-500">
+                          {nextNetworkStepSummary.completed} completed · {nextNetworkStepSummary.pending} pending
+                        </div>
+                      </div>
+                      <div className="mt-3 space-y-3">
+                        {data.nextNetworkSteps.length === 0 ? (
+                          <div className="text-sm text-slate-500">No next steps added yet.</div>
+                        ) : (
+                          data.nextNetworkSteps.map((item) => (
+                            <label
+                              key={item.id}
+                              className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-3 text-sm transition ${
+                                item.completed
+                                  ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                                  : "border-slate-200 bg-white text-slate-700"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={item.completed}
+                                onChange={() => toggleNextNetworkStep(item.id)}
+                                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className={item.completed ? "line-through opacity-80" : ""}>{item.text}</div>
+                                <div className="mt-1 text-xs font-medium uppercase tracking-[0.12em] text-slate-500">
+                                  {item.completed ? "Completed" : "Pending"}
+                                </div>
+                              </div>
+                            </label>
+                          ))
+                        )}
                       </div>
                     </div>
                   </div>

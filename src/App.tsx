@@ -21,6 +21,7 @@ import type {
   CaseTabKey,
   InvitationRecord,
   JournalAudience,
+  NextNetworkStep,
   UserType,
 } from "../shared/types";
 import {
@@ -53,6 +54,74 @@ const tabs: { key: CaseTabKey; label: string }[] = [
 
 const TAB_PREF_KEY = "network-manager-ui-case-tab";
 const DEFAULT_BRAND_LOGO = "/sgt-logo.png";
+
+function splitLines(text: string) {
+  return text
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function makeNextNetworkStep(text: string, completed = false): NextNetworkStep {
+  return {
+    id: `network-step-${Math.random().toString(36).slice(2, 10)}`,
+    text,
+    completed,
+  };
+}
+
+function normalizeStepKey(text: string) {
+  return text.trim().toLowerCase();
+}
+
+function buildNextNetworkStepsFromText(text: string, existingSteps: NextNetworkStep[] = []) {
+  const existingByKey = new Map(
+    existingSteps
+      .filter((item) => item.text.trim())
+      .map((item) => [normalizeStepKey(item.text), item] as const),
+  );
+
+  return splitLines(text).map((item) => {
+    const existing = existingByKey.get(normalizeStepKey(item));
+    if (existing) {
+      return { ...existing, text: item };
+    }
+    return makeNextNetworkStep(item);
+  });
+}
+
+function serializeNextNetworkSteps(steps: NextNetworkStep[]) {
+  return steps
+    .map((item) => item.text.trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function normalizeCaseState(state: CaseState): CaseState {
+  const merged = {
+    ...cloneDefaultCaseState(),
+    ...state,
+  };
+  const nextNetworkSteps =
+    Array.isArray(state.nextNetworkSteps) && state.nextNetworkSteps.length > 0
+      ? state.nextNetworkSteps
+          .map((item) => ({
+            id: item.id || `network-step-${Math.random().toString(36).slice(2, 10)}`,
+            text: String(item.text || "").trim(),
+            completed: Boolean(item.completed),
+          }))
+          .filter((item) => item.text)
+      : buildNextNetworkStepsFromText(merged.nextNetworkStepsText);
+
+  return {
+    ...merged,
+    nextNetworkStepsText:
+      merged.nextNetworkStepsText && merged.nextNetworkStepsText.trim()
+        ? merged.nextNetworkStepsText
+        : serializeNextNetworkSteps(nextNetworkSteps),
+    nextNetworkSteps,
+  };
+}
 
 function Card({
   title,
@@ -719,7 +788,7 @@ function CasePage() {
     try {
       const [caseResponse, journalResponse] = await Promise.all([fetchCase(caseId), fetchJournal(caseId)]);
       setCasePayload(caseResponse);
-      setDraftState(caseResponse.state);
+      setDraftState(normalizeCaseState(caseResponse.state));
       setJournalEntries(journalResponse.entries);
       setError("");
     } catch (err) {
@@ -740,6 +809,31 @@ function CasePage() {
   }, [caseId]);
 
   const currentRole = casePayload?.membership?.role || session?.user.userType || "org_admin";
+
+  const nextNetworkStepSummary = useMemo(() => {
+    const completed = draftState.nextNetworkSteps.filter((item) => item.completed).length;
+    return {
+      completed,
+      pending: Math.max(0, draftState.nextNetworkSteps.length - completed),
+    };
+  }, [draftState.nextNetworkSteps]);
+
+  const updateDraftNextNetworkStepsText = (value: string) => {
+    setDraftState((current) => ({
+      ...current,
+      nextNetworkStepsText: value,
+      nextNetworkSteps: buildNextNetworkStepsFromText(value, current.nextNetworkSteps),
+    }));
+  };
+
+  const toggleDraftNextNetworkStep = (id: string) => {
+    setDraftState((current) => ({
+      ...current,
+      nextNetworkSteps: current.nextNetworkSteps.map((item) =>
+        item.id === id ? { ...item, completed: !item.completed } : item,
+      ),
+    }));
+  };
 
   const saveCaseState = async () => {
     if (!casePayload) return;
@@ -911,7 +1005,20 @@ function CasePage() {
         ) : null}
 
         {activeTab === "network" ? (
-          <Card title="Network building">
+          <Card
+            title="Network building"
+            right={
+              permissions.canEditCaseState ? (
+                <button
+                  className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                  disabled={saving}
+                  onClick={saveCaseState}
+                >
+                  {saving ? "Saving..." : "Save network updates"}
+                </button>
+              ) : null
+            }
+          >
             <div className="grid gap-4 lg:grid-cols-2">
               <div className="space-y-4">
                 <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-500">Case memberships</h3>
@@ -950,6 +1057,63 @@ function CasePage() {
                     <div className="mt-2 text-xs text-slate-500">Availability: {member.availability || "Not recorded"}</div>
                   </div>
                 ))}
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <div className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-500">Network gaps</div>
+                  <Field label="Current gaps">
+                    <textarea
+                      className="textarea mt-3"
+                      value={draftState.currentGapsText}
+                      onChange={(event) => setDraftState((current) => ({ ...current, currentGapsText: event.target.value }))}
+                      disabled={!permissions.canEditCaseState}
+                    />
+                  </Field>
+                </div>
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-500">Next steps</div>
+                    <div className="text-xs font-medium text-slate-500">
+                      {nextNetworkStepSummary.completed} completed · {nextNetworkStepSummary.pending} pending
+                    </div>
+                  </div>
+                  <Field label="Next network-building steps">
+                    <textarea
+                      className="textarea mt-3"
+                      value={draftState.nextNetworkStepsText}
+                      onChange={(event) => updateDraftNextNetworkStepsText(event.target.value)}
+                      disabled={!permissions.canEditCaseState}
+                    />
+                  </Field>
+                  <div className="mt-4 space-y-3">
+                    {draftState.nextNetworkSteps.length === 0 ? (
+                      <div className="text-sm text-slate-500">No next steps recorded yet.</div>
+                    ) : (
+                      draftState.nextNetworkSteps.map((item) => (
+                        <label
+                          key={item.id}
+                          className={`flex items-start gap-3 rounded-2xl border px-3 py-3 text-sm ${
+                            item.completed
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                              : "border-slate-200 bg-slate-50 text-slate-700"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={item.completed}
+                            onChange={() => toggleDraftNextNetworkStep(item.id)}
+                            disabled={!permissions.canEditCaseState}
+                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className={item.completed ? "line-through opacity-80" : ""}>{item.text}</div>
+                            <div className="mt-1 text-xs font-medium uppercase tracking-[0.12em] text-slate-500">
+                              {item.completed ? "Completed" : "Pending"}
+                            </div>
+                          </div>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </Card>

@@ -42,6 +42,12 @@ export type NetworkMemberProfile = {
   confirmed: boolean;
 };
 
+export type NextNetworkStep = {
+  id: string;
+  text: string;
+  completed: boolean;
+};
+
 export type RuleItem = {
   id: string;
   title: string;
@@ -119,6 +125,7 @@ export type CaseState = {
   networkMembers: NetworkMemberProfile[];
   currentGapsText: string;
   nextNetworkStepsText: string;
+  nextNetworkSteps: NextNetworkStep[];
   rules: RuleItem[];
   monitoringItems: MonitoringItem[];
   fireDrillScenario: string;

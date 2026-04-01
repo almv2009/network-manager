@@ -4,6 +4,14 @@ function makeId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function makeNextNetworkStep(text: string, completed = false) {
+  return {
+    id: makeId("network-step"),
+    text,
+    completed,
+  };
+}
+
 export const defaultCaseState: CaseState = {
   workspaceName: "Family Safeguarding Workspace",
   workspaceMode: "Organization-managed access",
@@ -53,6 +61,10 @@ export const defaultCaseState: CaseState = {
     "Weekend backup still needs confirmation\nEscalation wording must remain simple and consistent",
   nextNetworkStepsText:
     "Confirm one additional backup contact\nReview same-day escalation plan with all active members",
+  nextNetworkSteps: [
+    makeNextNetworkStep("Confirm one additional backup contact"),
+    makeNextNetworkStep("Review same-day escalation plan with all active members"),
+  ],
   rules: [
     {
       id: makeId("rule"),
