@@ -1900,7 +1900,7 @@ export default function App() {
                 </div>
               </Card>
 
-              <Card title="Safeguarding Plan Finalized Rules">
+              <Card title="Long-Term Safeguarding Plan">
                 <div className="space-y-4">
                   {finalizedRules.length ? (
                     finalizedRules.map((rule) => (
