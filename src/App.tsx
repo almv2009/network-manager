@@ -6,14 +6,19 @@ type TabKey =
   | "network"
   | "planning"
   | "monitoring"
+  | "journal"
   | "closure";
 
 type NetworkMember = {
   id: string;
   name: string;
+  relationship: string;
   role: string;
   availability: string;
+  phone: string;
+  email: string;
   reliability: number;
+  confirmed: boolean;
 };
 
 type TimelineEntry = {
@@ -68,6 +73,14 @@ type ChangeLogItem = {
   timestamp: string;
 };
 
+type JournalEntry = {
+  id: string;
+  author: string;
+  audience: string;
+  message: string;
+  timestamp: string;
+};
+
 type AppData = {
   workspaceName: string;
   workspaceMode: string;
@@ -118,9 +131,14 @@ type AppData = {
   changeAudience: string;
   changeUpdateText: string;
   changeLog: ChangeLogItem[];
+
+  journalEntryAuthor: string;
+  journalEntryAudience: string;
+  journalEntryText: string;
+  journalEntries: JournalEntry[];
 };
 
-const STORAGE_KEY = "network-manager-app-data-v3";
+const STORAGE_KEY = "network-manager-app-data-v4";
 
 const tabs: { key: TabKey; label: string }[] = [
   { key: "case-status", label: "Case Status" },
@@ -128,12 +146,42 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: "network", label: "Network Building" },
   { key: "planning", label: "Safeguarding Planning" },
   { key: "monitoring", label: "Monitoring & Testing" },
+  { key: "journal", label: "Shared Journal" },
   { key: "closure", label: "Closure & Ongoing Safeguarding" },
 ];
 
 function makeId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
+
+function normalizeNetworkMember(member: Partial<NetworkMember>): NetworkMember {
+  const rawScore = Number(member.reliability ?? 0);
+  const normalizedScore =
+    rawScore > 10 ? Math.max(0, Math.min(10, Math.round(rawScore / 10))) : rawScore;
+
+  return {
+    id: member.id || makeId("member"),
+    name: member.name || "",
+    relationship: member.relationship || "",
+    role: member.role || "",
+    availability: member.availability || "",
+    phone: member.phone || "",
+    email: member.email || "",
+    reliability: Math.max(0, Math.min(10, normalizedScore)),
+    confirmed: Boolean(member.confirmed ?? (member.name && member.role)),
+  };
+}
+
+const WORST_CASE_SCENARIOS = [
+  "Caregivers do not follow the agreed safeguarding rules or stop following key parts of the plan.",
+  "A critical network member leaves, withdraws, or can no longer fulfill their responsibilities.",
+  "A child is hurt, harmed, or neglected, or there is credible concern that harm or neglect is occurring.",
+  "The network can no longer maintain reliable day-to-day supervision or coverage for the children.",
+  "The safeguarding plan breaks down repeatedly and the family or network cannot restore stability quickly.",
+  "Substance use, violence, mental health crisis, or other escalating conditions make the children unsafe.",
+  "Key information is being hidden, the network cannot get a clear picture of what is happening, or trust has broken down to the point that the plan cannot be relied on.",
+  "Emergency services, school, medical staff, or other professionals raise serious safeguarding concerns that the network cannot safely manage alone.",
+];
 
 const defaultData: AppData = {
   workspaceName: "Miller Family Workspace",
@@ -185,30 +233,46 @@ const defaultData: AppData = {
     {
       id: makeId("member"),
       name: "Karen",
+      relationship: "Anna’s sister",
       role: "Primary evening support",
       availability: "Mon, Wed, Fri",
-      reliability: 90,
+      phone: "",
+      email: "",
+      reliability: 9,
+      confirmed: true,
     },
     {
       id: makeId("member"),
       name: "Mary",
+      relationship: "Anna’s mother",
       role: "Backup overnight support",
       availability: "Daily",
-      reliability: 82,
+      phone: "",
+      email: "",
+      reliability: 8,
+      confirmed: true,
     },
     {
       id: makeId("member"),
       name: "Lisa",
+      relationship: "Neighbour",
       role: "School and neighbourhood check-in",
       availability: "Weekdays",
-      reliability: 88,
+      phone: "",
+      email: "",
+      reliability: 9,
+      confirmed: true,
     },
     {
       id: makeId("member"),
       name: "Mrs. Patel",
+      relationship: "Teacher",
       role: "School contact",
       availability: "School hours",
-      reliability: 78,
+      phone: "",
+      email: "",
+      reliability: 8,
+      confirmed: true,
     },
   ],
   currentGapsText:
@@ -338,6 +402,20 @@ const defaultData: AppData = {
       timestamp: "2026-03-31 09:15",
     },
   ],
+
+  journalEntryAuthor: "",
+  journalEntryAudience: "All network members and caregivers",
+  journalEntryText: "",
+  journalEntries: [
+    {
+      id: makeId("journal"),
+      author: "Practitioner Name",
+      audience: "All network members and caregivers",
+      message:
+        "Welcome to the shared journal. Use this space to record developments, questions, updates, and communication between caregivers and network members.",
+      timestamp: "2026-03-31 09:20",
+    },
+  ],
 };
 
 function loadInitialData(): AppData {
@@ -350,7 +428,9 @@ function loadInitialData(): AppData {
       ...defaultData,
       ...parsed,
       timelineEntries: parsed.timelineEntries ?? defaultData.timelineEntries,
-      networkMembers: parsed.networkMembers ?? defaultData.networkMembers,
+      networkMembers: (parsed.networkMembers ?? defaultData.networkMembers).map(
+        (member) => normalizeNetworkMember(member),
+      ),
       rules: parsed.rules ?? defaultData.rules,
       monitoringItems: parsed.monitoringItems ?? defaultData.monitoringItems,
       closureAppointments:
@@ -362,6 +442,7 @@ function loadInitialData(): AppData {
         (parsed as Partial<{ handoverDocs: DocumentItem[] }>).handoverDocs ??
         defaultData.closureDocuments,
       changeLog: parsed.changeLog ?? defaultData.changeLog,
+      journalEntries: parsed.journalEntries ?? defaultData.journalEntries,
     };
   } catch {
     return defaultData;
@@ -561,25 +642,25 @@ export default function App() {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
 
-  const planStabilityTone = useMemo(
-    () => getScaleTone(data.planStability, 100),
-    [data.planStability],
-  );
-
-  const safeguardingScaleTone = useMemo(
-    () => getScaleTone(data.safeguardingScale, 10),
-    [data.safeguardingScale],
+  const confirmedNetworkMembers = useMemo(
+    () =>
+      data.networkMembers.filter(
+        (member) => member.confirmed && member.name.trim(),
+      ),
+    [data.networkMembers],
   );
 
   const continuityReadiness = useMemo(() => {
-    const avg = Math.round(
-      data.networkMembers.reduce(
-        (sum, n) => sum + Number(n.reliability || 0),
-        0,
-      ) / Math.max(1, data.networkMembers.length),
-    );
-    return Math.max(0, Math.min(100, avg - 6));
-  }, [data.networkMembers]);
+    const source = confirmedNetworkMembers.length
+      ? confirmedNetworkMembers
+      : data.networkMembers;
+
+    const avg =
+      source.reduce((sum, member) => sum + Number(member.reliability || 0), 0) /
+      Math.max(1, source.length);
+
+    return Math.max(0, Math.min(10, Number(avg.toFixed(1))));
+  }, [confirmedNetworkMembers, data.networkMembers]);
 
   const saveSection = (sectionName: string) => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -593,7 +674,7 @@ export default function App() {
   const updateNetworkMember = (
     id: string,
     field: keyof NetworkMember,
-    value: string | number,
+    value: string | number | boolean,
   ) => {
     setData((current) => ({
       ...current,
@@ -608,13 +689,17 @@ export default function App() {
       ...current,
       networkMembers: [
         ...current.networkMembers,
-        {
+        normalizeNetworkMember({
           id: makeId("member"),
           name: "",
+          relationship: "",
           role: "",
           availability: "",
-          reliability: 75,
-        },
+          phone: "",
+          email: "",
+          reliability: 5,
+          confirmed: false,
+        }),
       ],
     }));
   };
@@ -868,6 +953,60 @@ export default function App() {
     }));
   };
 
+  const addJournalEntry = () => {
+    const author = data.journalEntryAuthor.trim() || "Unknown author";
+    const message = data.journalEntryText.trim();
+    const audience =
+      data.journalEntryAudience.trim() || "All network members and caregivers";
+
+    if (!message) {
+      setBanner("Enter a journal note before posting it.");
+      return;
+    }
+
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+      now.getDate(),
+    ).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(
+      now.getMinutes(),
+    ).padStart(2, "0")}`;
+
+    setData((current) => ({
+      ...current,
+      journalEntryText: "",
+      journalEntries: [
+        {
+          id: makeId("journal"),
+          author,
+          audience,
+          message,
+          timestamp,
+        },
+        ...current.journalEntries,
+      ],
+    }));
+    setBanner("Journal entry posted for the family and network.");
+  };
+
+  const removeJournalEntry = (id: string) => {
+    setData((current) => ({
+      ...current,
+      journalEntries: current.journalEntries.filter((item) => item.id !== id),
+    }));
+  };
+
+  const resetJournalSection = () => {
+    setData((current) => ({
+      ...current,
+      journalEntryAuthor: defaultData.journalEntryAuthor,
+      journalEntryAudience: defaultData.journalEntryAudience,
+      journalEntryText: defaultData.journalEntryText,
+      journalEntries: defaultData.journalEntries,
+    }));
+    setBanner("Shared journal reset.");
+  };
+
+
   const deleteClosureSection = () => {
     setData((current) => ({
       ...current,
@@ -895,11 +1034,11 @@ export default function App() {
           <section className="rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-teal-200 bg-white shadow-sm">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full border border-teal-200 bg-teal-50 p-2">
                   <img
                     src="/sgt-logo.png"
                     alt="SgT logo"
-                    className="h-11 w-11 object-contain"
+                    className="h-full w-full object-contain"
                   />
                 </div>
                 <div>
@@ -1017,9 +1156,9 @@ export default function App() {
                   helper="Built to continue after formal closure"
                 />
                 <Metric
-                  label="Network Members"
-                  value={String(data.networkMembers.length)}
-                  helper="Shared access for caregivers and network members"
+                  label="Confirmed Network Members"
+                  value={String(confirmedNetworkMembers.length)}
+                  helper="Auto-populated from the Network Building tab"
                 />
                 <Metric
                   label="Plan Reliability"
@@ -1028,10 +1167,70 @@ export default function App() {
                 />
                 <Metric
                   label="Continuity Readiness"
-                  value={`${continuityReadiness}%`}
-                  helper="Measures readiness for long-term family ownership"
+                  value={`${continuityReadiness}/10`}
+                  helper="Average willingness, ability, and confidence across confirmed members"
                 />
               </div>
+
+              <Card title="Confirmed Network Members">
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-600">
+                    This section updates automatically from confirmed entries in the Network Building tab.
+                  </p>
+                  {confirmedNetworkMembers.length ? (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {confirmedNetworkMembers.map((member) => (
+                        <div
+                          key={member.id}
+                          className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-base font-semibold text-slate-900">
+                                {member.name}
+                              </p>
+                              <p className="text-sm text-slate-600">
+                                {member.relationship || "Relationship not entered"}
+                              </p>
+                            </div>
+                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                              Confirmed
+                            </span>
+                          </div>
+                          <div className="mt-4 space-y-2 text-sm text-slate-700">
+                            <div>
+                              <span className="font-medium text-slate-900">Role:</span>{" "}
+                              {member.role || "Not entered"}
+                            </div>
+                            <div>
+                              <span className="font-medium text-slate-900">Availability:</span>{" "}
+                              {member.availability || "Not entered"}
+                            </div>
+                            <div>
+                              <span className="font-medium text-slate-900">Phone:</span>{" "}
+                              {member.phone || "Not entered"}
+                            </div>
+                            <div>
+                              <span className="font-medium text-slate-900">Email:</span>{" "}
+                              {member.email || "Not entered"}
+                            </div>
+                            <div>
+                              <span className="font-medium text-slate-900">
+                                Willingness / Ability / Confidence:
+                              </span>{" "}
+                              {member.reliability}/10
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                      No confirmed network members yet. Confirm them in the Network Building tab and they will appear here automatically.
+                    </div>
+                  )}
+                </div>
+              </Card>
 
               <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
                 <Card title="Case Dashboard">
@@ -1131,20 +1330,13 @@ export default function App() {
                     </Field>
 
                     <div className="rounded-2xl border border-slate-200 p-4">
-                      <div className="flex items-center justify-between gap-3 text-sm">
+                      <div className="flex items-center justify-between text-sm">
                         <span className="font-medium text-slate-700">
                           Plan Stability
                         </span>
-                        <div className="flex items-center gap-3">
-                          <span
-                            className={`rounded-full px-3 py-1 text-xs font-semibold ${planStabilityTone.badgeClass}`}
-                          >
-                            {planStabilityTone.label}
-                          </span>
-                          <span className={`font-semibold ${planStabilityTone.textClass}`}>
-                            {data.planStability}%
-                          </span>
-                        </div>
+                        <span className="font-semibold text-slate-900">
+                          {data.planStability}%
+                        </span>
                       </div>
                       <div className="mt-3 space-y-3">
                         <input
@@ -1155,15 +1347,9 @@ export default function App() {
                           onChange={(e) =>
                             updateField("planStability", Number(e.target.value))
                           }
-                          className={`range-input w-full ${getScaleTrackClass(
-                            data.planStability,
-                            100,
-                          )}`}
+                          className="w-full"
                         />
-                        <ProgressBar
-                          value={data.planStability}
-                          barClass={planStabilityTone.barClass}
-                        />
+                        <ProgressBar value={data.planStability} />
                       </div>
                     </div>
 
@@ -1234,15 +1420,8 @@ export default function App() {
                           reliability.
                         </p>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${safeguardingScaleTone.badgeClass}`}
-                        >
-                          {safeguardingScaleTone.label}
-                        </span>
-                        <div className={`text-2xl font-semibold ${safeguardingScaleTone.textClass}`}>
-                          {data.safeguardingScale}/10
-                        </div>
+                      <div className="text-2xl font-semibold text-slate-900">
+                        {data.safeguardingScale}/10
                       </div>
                     </div>
 
@@ -1259,26 +1438,17 @@ export default function App() {
                             Number(e.target.value),
                           )
                         }
-                        className={`range-input w-full ${getScaleTrackClass(
-                          data.safeguardingScale,
-                          10,
-                        )}`}
+                        className="w-full"
                       />
                       <div className="range-scale-labels">
-                        <span className="range-scale-label text-rose-600">
-                          0 to 4, Needs attention
+                        <span className="range-scale-label">
+                          0, Unsafe and unstable
                         </span>
-                        <span className="range-scale-label text-amber-600">
-                          5 to 7, Developing
-                        </span>
-                        <span className="range-scale-label text-emerald-600">
-                          8 to 10, Strong
+                        <span className="range-scale-label">
+                          10, Strong and sustainable safeguarding
                         </span>
                       </div>
-                      <ProgressBar
-                        value={data.safeguardingScale * 10}
-                        barClass={safeguardingScaleTone.barClass}
-                      />
+                      <ProgressBar value={data.safeguardingScale * 10} />
                     </div>
                   </div>
                 </div>
@@ -1365,7 +1535,7 @@ export default function App() {
           )}
 
           {activeTab === "network" && (
-            <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+            <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
               <Card
                 title="Network Members & Roles"
                 right={
@@ -1382,110 +1552,165 @@ export default function App() {
                   <SectionActions
                     onSave={() => saveSection("Network building")}
                   />
-                  {data.networkMembers.map((person) => (
-                    <div
-                      key={person.id}
-                      className="rounded-2xl border border-slate-200 p-4"
-                    >
-                      <div className="mb-4 flex items-center justify-between">
-                        <p className="font-medium text-slate-900">
-                          {person.name || "New network member"}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => removeNetworkMember(person.id)}
-                          className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <Field label="Name">
-                          <input
-                            value={person.name}
-                            onChange={(e) =>
-                              updateNetworkMember(
-                                person.id,
-                                "name",
-                                e.target.value,
-                              )
-                            }
-                            className="input"
-                          />
-                        </Field>
-                        <Field label="Role">
-                          <input
-                            value={person.role}
-                            onChange={(e) =>
-                              updateNetworkMember(
-                                person.id,
-                                "role",
-                                e.target.value,
-                              )
-                            }
-                            className="input"
-                          />
-                        </Field>
-                        <Field label="Availability">
-                          <input
-                            value={person.availability}
-                            onChange={(e) =>
-                              updateNetworkMember(
-                                person.id,
-                                "availability",
-                                e.target.value,
-                              )
-                            }
-                            className="input"
-                          />
-                        </Field>
-                        <Field label="Reliability">
-                          <div className="space-y-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                    Confirmed network members automatically appear on the main Case Status page with their contact details.
+                  </div>
+                  {data.networkMembers.map((person) => {
+                    const personTone = getScaleTone(person.reliability, 10);
+
+                    return (
+                      <div
+                        key={person.id}
+                        className="rounded-2xl border border-slate-200 p-4"
+                      >
+                        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <p className="font-medium text-slate-900">
+                              {person.name || "New network member"}
+                            </p>
+                            <p className="text-sm text-slate-500">
+                              {person.role || "Role not entered yet"}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={person.confirmed}
+                                onChange={(e) =>
+                                  updateNetworkMember(
+                                    person.id,
+                                    "confirmed",
+                                    e.target.checked,
+                                  )
+                                }
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                              Confirmed member
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => removeNetworkMember(person.id)}
+                              className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <Field label="Name">
                             <input
-                              type="range"
-                              min="0"
-                              max="100"
-                              value={person.reliability}
+                              value={person.name}
                               onChange={(e) =>
                                 updateNetworkMember(
                                   person.id,
-                                  "reliability",
-                                  Number(e.target.value),
+                                  "name",
+                                  e.target.value,
                                 )
                               }
-                              className={`range-input w-full ${getScaleTrackClass(
-                                person.reliability,
-                                100,
-                              )}`}
+                              className="input"
                             />
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-slate-600">Score</span>
-                              <div className="flex items-center gap-3">
-                                <span
-                                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                                    getScaleTone(person.reliability, 100).badgeClass
-                                  }`}
-                                >
-                                  {getScaleTone(person.reliability, 100).label}
-                                </span>
-                                <span
-                                  className={`font-medium ${
-                                    getScaleTone(person.reliability, 100).textClass
-                                  }`}
-                                >
-                                  {person.reliability}%
+                          </Field>
+                          <Field label="Relationship to child or family">
+                            <input
+                              value={person.relationship}
+                              onChange={(e) =>
+                                updateNetworkMember(
+                                  person.id,
+                                  "relationship",
+                                  e.target.value,
+                                )
+                              }
+                              className="input"
+                            />
+                          </Field>
+                          <Field label="Role">
+                            <input
+                              value={person.role}
+                              onChange={(e) =>
+                                updateNetworkMember(
+                                  person.id,
+                                  "role",
+                                  e.target.value,
+                                )
+                              }
+                              className="input"
+                            />
+                          </Field>
+                          <Field label="Availability">
+                            <input
+                              value={person.availability}
+                              onChange={(e) =>
+                                updateNetworkMember(
+                                  person.id,
+                                  "availability",
+                                  e.target.value,
+                                )
+                              }
+                              className="input"
+                            />
+                          </Field>
+                          <Field label="Phone">
+                            <input
+                              value={person.phone}
+                              onChange={(e) =>
+                                updateNetworkMember(
+                                  person.id,
+                                  "phone",
+                                  e.target.value,
+                                )
+                              }
+                              className="input"
+                            />
+                          </Field>
+                          <Field label="Email">
+                            <input
+                              value={person.email}
+                              onChange={(e) =>
+                                updateNetworkMember(
+                                  person.id,
+                                  "email",
+                                  e.target.value,
+                                )
+                              }
+                              className="input"
+                            />
+                          </Field>
+                          <Field label="Willingness / Ability / Confidence">
+                            <div className="space-y-3">
+                              <input
+                                type="range"
+                                min="0"
+                                max="10"
+                                value={person.reliability}
+                                onChange={(e) =>
+                                  updateNetworkMember(
+                                    person.id,
+                                    "reliability",
+                                    Number(e.target.value),
+                                  )
+                                }
+                                className={`range-input w-full ${getScaleTrackClass(
+                                  person.reliability,
+                                  10,
+                                )}`}
+                              />
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-slate-600">Score</span>
+                                <span className={`font-medium ${personTone.textClass}`}>
+                                  {person.reliability}/10
                                 </span>
                               </div>
+                              <ProgressBar
+                                value={person.reliability * 10}
+                                barClass={personTone.barClass}
+                              />
                             </div>
-                            <ProgressBar
-                              value={person.reliability}
-                              barClass={getScaleTone(person.reliability, 100).barClass}
-                            />
-                          </div>
-                        </Field>
+                          </Field>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </Card>
 
@@ -1765,6 +1990,93 @@ export default function App() {
             </div>
           )}
 
+
+          {activeTab === "journal" && (
+            <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+              <Card title="Add Journal Entry">
+                <div className="space-y-4">
+                  <SectionActions
+                    onSave={addJournalEntry}
+                    onReset={resetJournalSection}
+                  />
+                  <p className="text-sm text-slate-600">
+                    Use the journal to record notes, questions, and communication between caregivers and network members.
+                  </p>
+                  <Field label="Author">
+                    <input
+                      value={data.journalEntryAuthor}
+                      onChange={(e) =>
+                        updateField("journalEntryAuthor", e.target.value)
+                      }
+                      className="input"
+                    />
+                  </Field>
+                  <Field label="Audience">
+                    <input
+                      value={data.journalEntryAudience}
+                      onChange={(e) =>
+                        updateField("journalEntryAudience", e.target.value)
+                      }
+                      className="input"
+                    />
+                  </Field>
+                  <Field label="Journal note">
+                    <textarea
+                      value={data.journalEntryText}
+                      onChange={(e) =>
+                        updateField("journalEntryText", e.target.value)
+                      }
+                      className="textarea"
+                    />
+                  </Field>
+                </div>
+              </Card>
+
+              <Card title="Shared Journal Feed">
+                <div className="space-y-4">
+                  {data.journalEntries.length ? (
+                    data.journalEntries.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <p className="text-base font-semibold text-slate-900">
+                              {entry.author}
+                            </p>
+                            <p className="text-sm text-slate-500">
+                              {entry.audience}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                              {entry.timestamp}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => removeJournalEntry(entry.id)}
+                              className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                        <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                          {entry.message}
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                      No journal entries yet. Add the first shared note for the family and network.
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </div>
+          )}
+
           {activeTab === "closure" && (
             <div className="space-y-6">
               <Card
@@ -1827,6 +2139,24 @@ export default function App() {
               </Card>
 
               <div className="grid gap-6 xl:grid-cols-[1.35fr_0.95fr]">
+                <Card title="Worst Case Scenario">
+                  <div className="space-y-3">
+                    <p className="text-sm text-slate-600">
+                      The family and network must call child welfare for help immediately if any of the following situations or conditions occur.
+                    </p>
+                    <div className="space-y-3">
+                      {WORST_CASE_SCENARIOS.map((item) => (
+                        <div
+                          key={item}
+                          className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900"
+                        >
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Card>
+
                 <Card title="Closure Stage and Ongoing Safeguarding Actions">
                   <div className="space-y-5">
                     <div className="flex flex-wrap gap-3">
@@ -2104,28 +2434,7 @@ export default function App() {
                           />
                         </Field>
 
-                        <Field label="Urgent situations requiring CPS contact">
-                          <textarea
-                            value={data.urgentCpsContactText}
-                            onChange={(e) =>
-                              updateField(
-                                "urgentCpsContactText",
-                                e.target.value,
-                              )
-                            }
-                            className="textarea"
-                          />
-                        </Field>
 
-                        <Field label="Shared safeguarding journal">
-                          <textarea
-                            value={data.closureJournalText}
-                            onChange={(e) =>
-                              updateField("closureJournalText", e.target.value)
-                            }
-                            className="textarea"
-                          />
-                        </Field>
                       </div>
                     </Card>
                   </div>
