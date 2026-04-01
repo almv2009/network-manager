@@ -1,48 +1,201 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  Navigate,
-  NavLink,
-  Outlet,
-  Route,
-  Routes,
-  useLocation,
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { cloneDefaultCaseState } from "../shared/default-case-state";
-import type {
-  AppUser,
-  CaseMembershipRecord,
-  CaseResponse,
-  CaseState,
-  CaseSummary,
-  CaseTabKey,
-  InvitationRecord,
-  JournalAudience,
-  NextNetworkStep,
-  UserType,
-} from "../shared/types";
-import {
-  ApiError,
-  closeCase,
-  createCaseMembership,
-  createInvitation,
-  createJournal,
-  fetchAdminUsers,
-  fetchAuditEvents,
-  fetchCase,
-  fetchJournal,
-  fetchOrganizationCases,
-  patchCase,
-  patchCaseMembership,
-  patchUserActive,
-  uploadCaseDocument,
-} from "./api";
-import { useSession } from "./session";
+type TabKey =
+  | "case-status"
+  | "timeline"
+  | "network"
+  | "planning"
+  | "monitoring"
+  | "journal"
+  | "closure";
 
-const tabs: { key: CaseTabKey; label: string }[] = [
+type NetworkMember = {
+  id: string;
+  name: string;
+  relationship: string;
+  role: string;
+  availability: string;
+  phone: string;
+  email: string;
+  reliability: number;
+  confirmed: boolean;
+};
+
+type NextNetworkStep = {
+  id: string;
+  text: string;
+  completed: boolean;
+};
+
+type TimelineEntry = {
+  id: string;
+  date: string;
+  title: string;
+  helper: string;
+};
+
+type RuleStatus = "On track" | "Needs review" | "At risk" | "Completed";
+
+type RuleItem = {
+  id: string;
+  title: string;
+  owner: string;
+  backup: string;
+  status: RuleStatus;
+  note: string;
+  checkMethod: string;
+  breakdownPlan: string;
+  completedAt?: string;
+};
+
+type PlanAdaptationStatus = "Suggested" | "In review" | "Agreed" | "Implemented";
+
+type PlanAdaptationItem = {
+  id: string;
+  recommendation: string;
+  suggestedBy: string;
+  responsible: string;
+  status: PlanAdaptationStatus;
+  notes: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+type PlanningPhaseKey = "immediate" | "intermediate" | "longTerm";
+type PlanningPhaseStatus = "Draft" | "Active" | "Being reviewed" | "Completed";
+
+type PlanningLayer = {
+  heading: string;
+  purpose: string;
+  status: PlanningPhaseStatus;
+  actions: string;
+  members: string;
+  reviewDate: string;
+  promotedAt?: string;
+};
+
+type MonitoringItem = {
+  id: string;
+  text: string;
+  checked: boolean;
+};
+
+type FireDrillStatus = "Pending" | "In progress" | "Completed";
+
+type FireDrillItem = {
+  id: string;
+  scenario: string;
+  date: string;
+  participants: string;
+  notes: string;
+  status: FireDrillStatus;
+  createdAt: string;
+  completedAt?: string;
+};
+
+type DocumentItem = {
+  id: string;
+  name: string;
+};
+
+type AppointmentStatus = "Scheduled" | "Completed";
+
+type AppointmentItem = {
+  id: string;
+  title: string;
+  date: string;
+  time: string;
+  location: string;
+  notes: string;
+  status: AppointmentStatus;
+  createdAt: string;
+  completedAt?: string;
+};
+
+type ActionItemStatus = "Planned" | "In progress" | "Completed";
+
+type ActionItem = {
+  id: string;
+  title: string;
+  owner: string;
+  status: ActionItemStatus;
+  notes: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+type JournalUrgency = "Routine" | "Important" | "Urgent";
+type JournalNotifyTarget = "Network and caregivers" | "Worker only" | "Everyone on file";
+
+type JournalEntry = {
+  id: string;
+  author: string;
+  audience: string;
+  message: string;
+  timestamp: string;
+  urgency: JournalUrgency;
+  notifyTarget: JournalNotifyTarget;
+  alertsSentAt?: string;
+};
+
+type AppData = {
+  workspaceName: string;
+  workspaceMode: string;
+  currentPhaseLabel: string;
+  postClosureContinuity: string;
+  networkSelfManagementTools: string;
+
+  caseStatus: string;
+  familyName: string;
+  leadPractitioner: string;
+  caseStartDate: string;
+  caregiverSummary: string;
+  currentWatchpoint: string;
+  planStability: number;
+  immediateActionsText: string;
+
+  riskStatement: string;
+  safeguardingGoals: string;
+  safeguardingScale: number;
+  timelineEntries: TimelineEntry[];
+
+  networkMembers: NetworkMember[];
+  currentGapsText: string;
+  nextNetworkStepsText: string;
+  nextNetworkSteps: NextNetworkStep[];
+
+  currentPlanningPhase: PlanningPhaseKey;
+  immediatePlan: PlanningLayer;
+  intermediatePlan: PlanningLayer;
+  longTermPlan: PlanningLayer;
+
+  rules: RuleItem[];
+  planAdaptations: PlanAdaptationItem[];
+
+  monitoringItems: MonitoringItem[];
+  fireDrills: FireDrillItem[];
+
+  caseClosureStatus:
+    | "CPS active"
+    | "Closure planned"
+    | "Closed to CPS"
+    | "Urgent CPS review";
+  closureAlertNote: string;
+  closureAppointments: AppointmentItem[];
+  closureActionItems: ActionItem[];
+  closureDocuments: DocumentItem[];
+
+  journalEntryAuthor: string;
+  journalEntryAudience: string;
+  journalEntryText: string;
+  journalEntryUrgency: JournalUrgency;
+  journalNotifyTarget: JournalNotifyTarget;
+  journalEntries: JournalEntry[];
+};
+
+const STORAGE_KEY = "network-manager-app-data-v5";
+
+const tabs: { key: TabKey; label: string }[] = [
   { key: "case-status", label: "Case Status" },
   { key: "timeline", label: "Timeline" },
   { key: "network", label: "Network Building" },
@@ -52,8 +205,27 @@ const tabs: { key: CaseTabKey; label: string }[] = [
   { key: "closure", label: "Closure & Ongoing Safeguarding" },
 ];
 
-const TAB_PREF_KEY = "network-manager-ui-case-tab";
-const DEFAULT_BRAND_LOGO = "/sgt-logo.png";
+const WORST_CASE_SCENARIOS = [
+  "Caregivers do not follow the agreed safeguarding rules or stop following key parts of the plan.",
+  "A critical network member leaves, withdraws, or can no longer fulfill their responsibilities.",
+  "A child is hurt, harmed, or neglected, or there is credible concern that harm or neglect is occurring.",
+  "The network can no longer maintain reliable day-to-day supervision or coverage for the children.",
+  "The safeguarding plan breaks down repeatedly and the family or network cannot restore stability quickly.",
+  "Substance use, violence, mental health crisis, or other escalating conditions make the children unsafe.",
+  "Key information is being hidden, the network cannot get a clear picture of what is happening, or trust has broken down to the point that the plan cannot be relied on.",
+  "Emergency services, school, medical staff, or other professionals raise serious safeguarding concerns that the network cannot safely manage alone.",
+];
+
+function makeId(prefix: string) {
+  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function nowStamp() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+    now.getDate(),
+  ).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
 
 function splitLines(text: string) {
   return text
@@ -62,32 +234,62 @@ function splitLines(text: string) {
     .filter(Boolean);
 }
 
-function makeNextNetworkStep(text: string, completed = false): NextNetworkStep {
+function clampScale(value: number) {
+  if (Number.isNaN(value)) return 0;
+  if (value > 10) return Math.max(0, Math.min(10, Number((value / 10).toFixed(1))));
+  return Math.max(0, Math.min(10, Number(value.toFixed(1))));
+}
+
+function getScaleTone(value: number) {
+  const normalized = clampScale(value);
+  if (normalized <= 4) {
+    return {
+      barClass: "bg-rose-500",
+      textClass: "text-rose-700",
+      badgeClass: "border border-rose-200 bg-rose-50 text-rose-700",
+      label: "Needs attention",
+      trackClass: "range-track-red",
+    };
+  }
+  if (normalized <= 7) {
+    return {
+      barClass: "bg-amber-500",
+      textClass: "text-amber-700",
+      badgeClass: "border border-amber-200 bg-amber-50 text-amber-700",
+      label: "Developing",
+      trackClass: "range-track-amber",
+    };
+  }
   return {
-    id: `network-step-${Math.random().toString(36).slice(2, 10)}`,
-    text,
-    completed,
+    barClass: "bg-emerald-500",
+    textClass: "text-emerald-700",
+    badgeClass: "border border-emerald-200 bg-emerald-50 text-emerald-700",
+    label: "Strong",
+    trackClass: "range-track-green",
   };
 }
 
-function normalizeStepKey(text: string) {
-  return text.trim().toLowerCase();
+function getClosureStatusClasses(status: AppData["caseClosureStatus"]) {
+  if (status === "Closed to CPS") return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (status === "Closure planned") return "border-amber-200 bg-amber-50 text-amber-800";
+  if (status === "Urgent CPS review") return "border-rose-200 bg-rose-50 text-rose-800";
+  return "border-blue-200 bg-blue-50 text-blue-800";
 }
 
-function buildNextNetworkStepsFromText(text: string, existingSteps: NextNetworkStep[] = []) {
-  const existingByKey = new Map(
-    existingSteps
-      .filter((item) => item.text.trim())
-      .map((item) => [normalizeStepKey(item.text), item] as const),
-  );
+function createNextNetworkStep(text: string, completed = false, id = makeId("network-step")): NextNetworkStep {
+  return { id, text, completed };
+}
 
-  return splitLines(text).map((item) => {
-    const existing = existingByKey.get(normalizeStepKey(item));
-    if (existing) {
-      return { ...existing, text: item };
-    }
-    return makeNextNetworkStep(item);
-  });
+function normalizeNextNetworkSteps(rawSteps: unknown, fallbackText: string) {
+  if (Array.isArray(rawSteps) && rawSteps.length > 0) {
+    return rawSteps
+      .map((item) => {
+        const next = item as Partial<NextNetworkStep>;
+        return createNextNetworkStep(String(next.text || "").trim(), Boolean(next.completed), next.id || makeId("network-step"));
+      })
+      .filter((item) => item.text);
+  }
+  return splitLines(fallbackText).map((item) => createNextNetworkStep(item));
 }
 
 function serializeNextNetworkSteps(steps: NextNetworkStep[]) {
@@ -97,30 +299,420 @@ function serializeNextNetworkSteps(steps: NextNetworkStep[]) {
     .join("\n");
 }
 
-function normalizeCaseState(state: CaseState): CaseState {
-  const merged = {
-    ...cloneDefaultCaseState(),
-    ...state,
-  };
-  const nextNetworkSteps =
-    Array.isArray(state.nextNetworkSteps) && state.nextNetworkSteps.length > 0
-      ? state.nextNetworkSteps
-          .map((item) => ({
-            id: item.id || `network-step-${Math.random().toString(36).slice(2, 10)}`,
-            text: String(item.text || "").trim(),
-            completed: Boolean(item.completed),
-          }))
-          .filter((item) => item.text)
-      : buildNextNetworkStepsFromText(merged.nextNetworkStepsText);
-
+function normalizeNetworkMember(member: Partial<NetworkMember>): NetworkMember {
   return {
-    ...merged,
-    nextNetworkStepsText:
-      merged.nextNetworkStepsText && merged.nextNetworkStepsText.trim()
-        ? merged.nextNetworkStepsText
-        : serializeNextNetworkSteps(nextNetworkSteps),
-    nextNetworkSteps,
+    id: member.id || makeId("member"),
+    name: member.name || "",
+    relationship: member.relationship || "",
+    role: member.role || "",
+    availability: member.availability || "",
+    phone: member.phone || "",
+    email: member.email || "",
+    reliability: clampScale(Number(member.reliability ?? 0)),
+    confirmed: Boolean(member.confirmed ?? (member.name && member.role)),
   };
+}
+
+function normalizeRule(rule: Partial<RuleItem>): RuleItem {
+  return {
+    id: rule.id || makeId("rule"),
+    title: rule.title || "",
+    owner: rule.owner || "",
+    backup: rule.backup || "",
+    status: (rule.status as RuleStatus) || "On track",
+    note: rule.note || "",
+    checkMethod: rule.checkMethod || "",
+    breakdownPlan: rule.breakdownPlan || "",
+    completedAt: rule.completedAt,
+  };
+}
+
+function normalizePlanAdaptation(item: Partial<PlanAdaptationItem>): PlanAdaptationItem {
+  return {
+    id: item.id || makeId("adaptation"),
+    recommendation: item.recommendation || "",
+    suggestedBy: item.suggestedBy || "",
+    responsible: item.responsible || "",
+    status: (item.status as PlanAdaptationStatus) || "Suggested",
+    notes: item.notes || "",
+    createdAt: item.createdAt || nowStamp(),
+    updatedAt: item.updatedAt,
+  };
+}
+
+function normalizeAppointment(item: Partial<AppointmentItem>): AppointmentItem {
+  return {
+    id: item.id || makeId("appointment"),
+    title: item.title || "",
+    date: item.date || "",
+    time: item.time || "",
+    location: item.location || "",
+    notes: item.notes || "",
+    status: (item.status as AppointmentStatus) || "Scheduled",
+    createdAt: item.createdAt || nowStamp(),
+    completedAt: item.completedAt,
+  };
+}
+
+function normalizeActionItem(item: Partial<ActionItem>): ActionItem {
+  return {
+    id: item.id || makeId("closure-action"),
+    title: item.title || "",
+    owner: item.owner || "",
+    status: (item.status as ActionItemStatus) || "Planned",
+    notes: item.notes || "",
+    createdAt: item.createdAt || nowStamp(),
+    completedAt: item.completedAt,
+  };
+}
+
+function normalizeFireDrill(item: Partial<FireDrillItem>): FireDrillItem {
+  return {
+    id: item.id || makeId("fire-drill"),
+    scenario: item.scenario || "",
+    date: item.date || "",
+    participants: item.participants || "",
+    notes: item.notes || "",
+    status: (item.status as FireDrillStatus) || "Pending",
+    createdAt: item.createdAt || nowStamp(),
+    completedAt: item.completedAt,
+  };
+}
+
+function normalizePlanningLayer(item: Partial<PlanningLayer> | undefined, fallback: PlanningLayer): PlanningLayer {
+  return {
+    heading: item?.heading || fallback.heading,
+    purpose: item?.purpose || fallback.purpose,
+    status: (item?.status as PlanningPhaseStatus) || fallback.status,
+    actions: item?.actions || fallback.actions,
+    members: item?.members || fallback.members,
+    reviewDate: item?.reviewDate || fallback.reviewDate,
+    promotedAt: item?.promotedAt,
+  };
+}
+
+
+
+function normalizeJournalEntry(item: Partial<JournalEntry>): JournalEntry {
+  return {
+    id: item.id || makeId("journal"),
+    author: item.author || "",
+    audience: item.audience || "All network members and caregivers",
+    message: item.message || "",
+    timestamp: item.timestamp || nowStamp(),
+    urgency: (item.urgency as JournalUrgency) || "Routine",
+    notifyTarget: (item.notifyTarget as JournalNotifyTarget) || "Network and caregivers",
+    alertsSentAt: item.alertsSentAt,
+  };
+}
+
+const defaultData: AppData = {
+  workspaceName: "Miller Family Workspace",
+  workspaceMode: "Shared family and network access",
+  currentPhaseLabel: "CPS active",
+  postClosureContinuity: "Enabled",
+  networkSelfManagementTools: "Included",
+
+  caseStatus: "Open",
+  familyName: "Miller Family",
+  leadPractitioner: "Practitioner Name",
+  caseStartDate: "2026-03-30",
+  caregiverSummary:
+    "Anna, primary caregiver. Current priorities include evening structure, emotional support, and reliable backup coverage.",
+  currentWatchpoint: "Evening routines become less reliable when caregiver stress rises.",
+  planStability: 8.2,
+  immediateActionsText:
+    "Confirm backup for Thursday evening\nReview escalation wording with caregiver\nSchedule next fire drill",
+
+  riskStatement:
+    "Children may experience gaps in supervision when caregiver becomes overwhelmed in the evening.",
+  safeguardingGoals:
+    "Children are consistently supervised, emotionally settled, and supported by a reliable network that responds early when routines weaken.",
+  safeguardingScale: 7,
+  timelineEntries: [
+    {
+      id: makeId("timeline"),
+      date: "2026-03-30",
+      title: "Case opened and network companion file created",
+      helper: "Risk statement and first safeguarding goals entered.",
+    },
+    {
+      id: makeId("timeline"),
+      date: "2026-04-01",
+      title: "Initial network meeting",
+      helper: "Roles drafted for evenings, school mornings, and backup response.",
+    },
+    {
+      id: makeId("timeline"),
+      date: "2026-04-04",
+      title: "Formal review meeting",
+      helper: "Assess whether escalation wording is understood by all members.",
+    },
+  ],
+
+  networkMembers: [
+    {
+      id: makeId("member"),
+      name: "Karen",
+      relationship: "Anna’s sister",
+      role: "Primary evening support",
+      availability: "Mon, Wed, Fri",
+      phone: "",
+      email: "",
+      reliability: 9,
+      confirmed: true,
+    },
+    {
+      id: makeId("member"),
+      name: "Mary",
+      relationship: "Anna’s mother",
+      role: "Backup overnight support",
+      availability: "Daily",
+      phone: "",
+      email: "",
+      reliability: 8,
+      confirmed: true,
+    },
+    {
+      id: makeId("member"),
+      name: "Lisa",
+      relationship: "Neighbour",
+      role: "School and neighbourhood check-in",
+      availability: "Weekdays",
+      phone: "",
+      email: "",
+      reliability: 9,
+      confirmed: true,
+    },
+    {
+      id: makeId("member"),
+      name: "Mrs. Patel",
+      relationship: "Teacher",
+      role: "School contact",
+      availability: "School hours",
+      phone: "",
+      email: "",
+      reliability: 8,
+      confirmed: true,
+    },
+  ],
+  currentGapsText:
+    "Weekend backup is not strong enough yet\nEscalation language needs to be simple and consistent\nOne additional overnight support option is recommended",
+  nextNetworkStepsText:
+    "Confirm whether Norma can cover Saturday evenings\nAdd backup contact for school-day emergencies\nReview network confidence in escalation process",
+  nextNetworkSteps: [
+    createNextNetworkStep("Confirm whether Norma can cover Saturday evenings"),
+    createNextNetworkStep("Add backup contact for school-day emergencies"),
+    createNextNetworkStep("Review network confidence in escalation process"),
+  ],
+
+  currentPlanningPhase: "immediate",
+  immediatePlan: {
+    heading: "Immediate Safety Intervention",
+    purpose: "What must happen right now so the children are safe today or tonight.",
+    status: "Active",
+    actions: `Karen confirms this evening coverage
+Mary remains available as overnight backup
+Anna sends an early warning text if routines begin to weaken`,
+    members: "Karen, Mary, Anna",
+    reviewDate: "2026-04-02",
+  },
+  intermediatePlan: {
+    heading: "Intermediate Safeguarding Plan",
+    purpose: "The bridge between the immediate response and the long-term safeguarding plan.",
+    status: "Draft",
+    actions: `Add weekend backup cover
+Clarify the escalation wording for all network members
+Confirm short-term routines for school mornings and evenings`,
+    members: "Karen, Mary, Lisa, Anna",
+    reviewDate: "2026-04-10",
+  },
+  longTermPlan: {
+    heading: "Long-Term Safeguarding Plan",
+    purpose: "The enduring safeguarding arrangements that remain in place after closure.",
+    status: "Draft",
+    actions: `Agree durable safeguarding rules
+Confirm long-term network roles
+Build review and contingency arrangements for post-closure safeguarding`,
+    members: "Anna, Karen, Mary, Lisa, wider network",
+    reviewDate: "2026-05-02",
+  },
+
+  rules: [
+    {
+      id: makeId("rule"),
+      title: "Children are supervised every evening",
+      owner: "Karen",
+      backup: "Mary",
+      status: "On track",
+      note: "Evening handoff confirmed by 7:30 p.m.",
+      checkMethod: "Text and evening confirmation",
+      breakdownPlan: "Escalate to backup chain",
+    },
+    {
+      id: makeId("rule"),
+      title: "Network is notified if caregiver becomes overwhelmed",
+      owner: "Anna",
+      backup: "Lisa",
+      status: "Needs review",
+      note: "Escalation language needs to be simplified.",
+      checkMethod: "Direct call or text to primary supports",
+      breakdownPlan: "Backup contact initiates rapid response",
+    },
+  ],
+  planAdaptations: [
+    {
+      id: makeId("adaptation"),
+      recommendation: "Simplify escalation wording so every network member uses the same language.",
+      suggestedBy: "Practitioner Name",
+      responsible: "Karen",
+      status: "In review",
+      notes: "Review with caregiver and network at the next meeting.",
+      createdAt: "2026-04-01 09:15",
+    },
+  ],
+
+  monitoringItems: [
+    { id: makeId("monitor"), text: "Roles are being carried out as agreed", checked: false },
+    { id: makeId("monitor"), text: "Communication chain is working", checked: false },
+    { id: makeId("monitor"), text: "Early warning signs are being noticed quickly", checked: false },
+    { id: makeId("monitor"), text: "The child’s day-to-day well-being looks stable", checked: false },
+    { id: makeId("monitor"), text: "Backups are clear when routines change", checked: false },
+  ],
+  fireDrills: [
+    {
+      id: makeId("fire-drill"),
+      scenario: "Test late-evening loss of coverage and confirm whether the backup chain responds within 30 minutes.",
+      date: "2026-04-10",
+      participants: "Anna, Karen, Mary, Lisa",
+      notes: "",
+      status: "Pending",
+      createdAt: "2026-04-01 09:30",
+    },
+  ],
+
+  caseClosureStatus: "Closure planned",
+  closureAlertNote:
+    "Formal CPS closure is approaching. The network must confirm ongoing review dates, responsibilities, and escalation expectations before closure is completed.",
+  closureAppointments: [
+    {
+      id: makeId("appointment"),
+      title: "Monthly network review",
+      date: "2026-04-18",
+      time: "18:00",
+      location: "Family home",
+      notes: "",
+      status: "Scheduled",
+      createdAt: "2026-04-01 09:40",
+    },
+    {
+      id: makeId("appointment"),
+      title: "Plan review and adaptation",
+      date: "2026-05-02",
+      time: "17:30",
+      location: "Community hub",
+      notes: "",
+      status: "Scheduled",
+      createdAt: "2026-04-01 09:41",
+    },
+  ],
+  closureActionItems: [
+    {
+      id: makeId("closure-action"),
+      title: "Review current network capacity and commitments",
+      owner: "Karen",
+      status: "In progress",
+      notes: "",
+      createdAt: "2026-04-01 09:42",
+    },
+    {
+      id: makeId("closure-action"),
+      title: "Update responsibilities in the safeguarding plan after closure",
+      owner: "Mary",
+      status: "Planned",
+      notes: "",
+      createdAt: "2026-04-01 09:43",
+    },
+  ],
+  closureDocuments: [
+    { id: makeId("doc"), name: "CPS closure summary" },
+    { id: makeId("doc"), name: "Final safeguarding plan at closure" },
+    { id: makeId("doc"), name: "Network sustainability plan" },
+    { id: makeId("doc"), name: "Communication and escalation pathway" },
+  ],
+
+  journalEntryAuthor: "",
+  journalEntryAudience: "All network members and caregivers",
+  journalEntryText: "",
+  journalEntryUrgency: "Routine",
+  journalNotifyTarget: "Network and caregivers",
+  journalEntries: [
+    {
+      id: makeId("journal"),
+      author: "Practitioner Name",
+      audience: "All network members and caregivers",
+      message:
+        "Welcome to the shared journal. Use this space to record developments, questions, updates, and communication between caregivers and network members.",
+      timestamp: "2026-03-31 09:20",
+      urgency: "Routine",
+      notifyTarget: "Network and caregivers",
+      alertsSentAt: "2026-03-31 09:20",
+    },
+  ],
+};
+
+function loadInitialData(): AppData {
+  if (typeof window === "undefined") return defaultData;
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  if (!raw) return defaultData;
+  try {
+    const parsed = JSON.parse(raw) as Partial<AppData> & Record<string, unknown>;
+    const nextNetworkSteps = normalizeNextNetworkSteps(
+      parsed.nextNetworkSteps,
+      String(parsed.nextNetworkStepsText ?? defaultData.nextNetworkStepsText),
+    );
+    const legacyFireDrills = parsed.fireDrills as Partial<FireDrillItem>[] | undefined;
+    const fallbackFireDrills =
+      legacyFireDrills && legacyFireDrills.length
+        ? legacyFireDrills.map((item) => normalizeFireDrill(item))
+        : [
+            normalizeFireDrill({
+              scenario: String(parsed.fireDrillScenario ?? defaultData.fireDrills[0].scenario),
+              date: String(parsed.fireDrillDate ?? defaultData.fireDrills[0].date),
+              participants: String(parsed.fireDrillParticipants ?? defaultData.fireDrills[0].participants),
+              notes: String(parsed.fireDrillRecordNotes ?? ""),
+              status: "Pending",
+            }),
+          ];
+
+    return {
+      ...defaultData,
+      ...parsed,
+      planStability: clampScale(Number(parsed.planStability ?? defaultData.planStability)),
+      safeguardingScale: clampScale(Number(parsed.safeguardingScale ?? defaultData.safeguardingScale)),
+      timelineEntries: (parsed.timelineEntries as TimelineEntry[]) ?? defaultData.timelineEntries,
+      networkMembers: ((parsed.networkMembers as Partial<NetworkMember>[]) ?? defaultData.networkMembers).map(normalizeNetworkMember),
+      nextNetworkStepsText:
+        parsed.nextNetworkStepsText && String(parsed.nextNetworkStepsText).trim()
+          ? String(parsed.nextNetworkStepsText)
+          : serializeNextNetworkSteps(nextNetworkSteps),
+      nextNetworkSteps,
+      rules: ((parsed.rules as Partial<RuleItem>[]) ?? defaultData.rules).map(normalizeRule),
+      planAdaptations: ((parsed.planAdaptations as Partial<PlanAdaptationItem>[]) ?? defaultData.planAdaptations).map(normalizePlanAdaptation),
+      monitoringItems: (parsed.monitoringItems as MonitoringItem[]) ?? defaultData.monitoringItems,
+      fireDrills: fallbackFireDrills,
+      closureAppointments: ((parsed.closureAppointments as Partial<AppointmentItem>[]) ?? defaultData.closureAppointments).map(normalizeAppointment),
+      closureActionItems: ((parsed.closureActionItems as Partial<ActionItem>[]) ?? defaultData.closureActionItems).map(normalizeActionItem),
+      closureDocuments:
+        ((parsed.closureDocuments as DocumentItem[]) ??
+          ((parsed.handoverDocs as DocumentItem[]) || defaultData.closureDocuments)),
+      journalEntries: ((parsed.journalEntries as Partial<JournalEntry>[]) ?? defaultData.journalEntries).map(normalizeJournalEntry),
+      journalEntryUrgency: (parsed.journalEntryUrgency as JournalUrgency) || defaultData.journalEntryUrgency,
+      journalNotifyTarget: (parsed.journalNotifyTarget as JournalNotifyTarget) || defaultData.journalNotifyTarget,
+    };
+  } catch {
+    return defaultData;
+  }
 }
 
 function Card({
@@ -134,15 +726,13 @@ function Card({
 }) {
   return (
     <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-      {(title || right) ? (
-        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-6 py-5">
-          <div>
-            {title ? <h2 className="text-lg font-semibold text-slate-900">{title}</h2> : null}
-          </div>
+      {(title || right) && (
+        <div className="flex items-center justify-between gap-4 px-6 py-5">
+          {title ? <h2 className="text-xl font-semibold text-slate-900">{title}</h2> : <div />}
           {right}
         </div>
-      ) : null}
-      <div className="p-6">{children}</div>
+      )}
+      <div className={title || right ? "px-6 pb-6" : "p-6"}>{children}</div>
     </section>
   );
 }
@@ -157,1204 +747,1668 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label className="grid gap-2">
+    <label className="block space-y-2">
       <span className="text-sm font-medium text-slate-700">{label}</span>
       {children}
-      {helper ? <span className="text-xs text-slate-500">{helper}</span> : null}
+      {helper ? <p className="text-xs text-slate-500">{helper}</p> : null}
     </label>
   );
 }
 
-function PageFrame({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
-  return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-semibold text-slate-950">{title}</h1>
-        {subtitle ? <p className="mt-2 max-w-3xl text-sm text-slate-600">{subtitle}</p> : null}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function StatusPill({ children, tone = "slate" }: { children: React.ReactNode; tone?: "green" | "amber" | "red" | "slate" | "blue" }) {
-  const toneClass =
-    tone === "green"
-      ? "bg-emerald-100 text-emerald-900"
-      : tone === "amber"
-        ? "bg-amber-100 text-amber-900"
-        : tone === "red"
-          ? "bg-rose-100 text-rose-900"
-          : tone === "blue"
-            ? "bg-blue-100 text-blue-900"
-            : "bg-slate-100 text-slate-800";
-  return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${toneClass}`}>{children}</span>;
-}
-
-function ProgressBar({ value }: { value: number }) {
-  const clamped = Math.max(0, Math.min(100, value));
-  return (
-    <div className="space-y-2">
-      <div className="h-3 overflow-hidden rounded-full bg-slate-200">
-        <div className="h-full rounded-full bg-blue-600" style={{ width: `${clamped}%` }} />
-      </div>
-      <div className="text-sm text-slate-600">{clamped}%</div>
-    </div>
-  );
-}
-
-function Metric({ label, value, helper }: { label: string; value: string; helper: string }) {
+function Metric({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+}) {
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="text-sm font-medium text-slate-500">{label}</div>
-      <div className="mt-2 text-2xl font-semibold text-slate-950">{value}</div>
+      <div className="mt-2 text-2xl font-semibold text-slate-900">{value}</div>
       <div className="mt-1 text-sm text-slate-500">{helper}</div>
     </div>
   );
 }
 
-function ErrorNotice({ error }: { error: string }) {
+function SaveBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
   return (
-    <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
-  );
-}
-
-function useStoredTab(defaultValue: CaseTabKey) {
-  const [tab, setTab] = useState<CaseTabKey>(() => {
-    if (typeof window === "undefined") return defaultValue;
-    const stored = window.localStorage.getItem(TAB_PREF_KEY) as CaseTabKey | null;
-    return stored || defaultValue;
-  });
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(TAB_PREF_KEY, tab);
-    }
-  }, [tab]);
-  return [tab, setTab] as const;
-}
-
-function RootRedirect() {
-  const { loading, session } = useSession();
-  if (loading) return <div className="p-8 text-sm text-slate-600">Loading…</div>;
-  return <Navigate to={session ? "/app" : "/sign-in"} replace />;
-}
-
-function ProtectedRoute() {
-  const { loading, session, error } = useSession();
-  const location = useLocation();
-  if (loading) {
-    return <div className="p-8 text-sm text-slate-600">Loading session…</div>;
-  }
-  if (
-    error?.code === "inactive_user" ||
-    error?.code === "user_not_provisioned" ||
-    error?.code === "organization_membership_required" ||
-    error?.code === "auth_not_configured"
-  ) {
-    return <Navigate to={`/access-denied?reason=${encodeURIComponent(error.code)}`} replace />;
-  }
-  if (!session) {
-    return <Navigate to={`/sign-in?returnTo=${encodeURIComponent(location.pathname + location.search)}`} replace />;
-  }
-  return <Outlet />;
-}
-
-function AdminRoute() {
-  const { session } = useSession();
-  if (!session) return <Navigate to="/sign-in" replace />;
-  if (!session.permissions.isOrgAdmin) {
-    return <Navigate to="/access-denied?reason=org_admin_required" replace />;
-  }
-  return <Outlet />;
-}
-
-function Layout() {
-  const { session } = useSession();
-  const logoSrc = session?.branding.logoUrl || DEFAULT_BRAND_LOGO;
-  return (
-    <div className="min-h-screen bg-slate-100 text-slate-950">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-4">
-            <img
-              src={logoSrc}
-              alt={`${session?.branding.name || session?.organization.name || "Organization"} logo`}
-              className="h-12 w-12 rounded-2xl border border-slate-200 bg-white object-contain p-1.5 shadow-sm"
-            />
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Network Manager</div>
-              <div className="text-lg font-semibold text-slate-950">
-                {session?.branding.name || session?.organization.name || "Organization"}
-              </div>
-            </div>
-          </div>
-          <nav className="flex items-center gap-3 text-sm">
-            <NavLink className="rounded-full px-4 py-2 hover:bg-slate-100" to="/app">
-              Cases
-            </NavLink>
-            {session?.permissions.isOrgAdmin ? (
-              <NavLink className="rounded-full px-4 py-2 hover:bg-slate-100" to="/admin">
-                Admin
-              </NavLink>
-            ) : null}
-            <a className="rounded-full px-4 py-2 hover:bg-slate-100" href="/auth/sign-out">
-              Sign out
-            </a>
-          </nav>
-        </div>
-      </header>
-      <Outlet />
+    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+      <div className="flex items-center justify-between gap-3">
+        <span>{message}</span>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="rounded-xl border border-emerald-200 bg-white px-3 py-1 text-xs font-medium text-emerald-700"
+        >
+          Dismiss
+        </button>
+      </div>
     </div>
   );
 }
 
-function SignInPage() {
-  const [params] = useSearchParams();
-  const signedOut = params.get("signedOut") === "1";
-  const invite = params.get("invite");
-  const returnTo = params.get("returnTo") || "/app";
-  const { session } = useSession();
-
-  if (session) {
-    return <Navigate to={returnTo} replace />;
-  }
-
-  const signInHref = `/auth/sign-in?returnTo=${encodeURIComponent(returnTo)}${invite ? `&invite=${encodeURIComponent(invite)}` : ""}`;
-
+function SectionActions({
+  onSave,
+  onReset,
+  saveLabel = "Save this section",
+}: {
+  onSave: () => void;
+  onReset?: () => void;
+  saveLabel?: string;
+}) {
   return (
-    <PageFrame
-      title="Sign in to Network Manager"
-      subtitle="Network Manager is organization-owned. Access is granted through your organization’s identity provider and backend case membership, not local browser state."
-    >
-      <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <Card title="Secure access">
-          <div className="grid gap-4 text-sm text-slate-600">
-            {signedOut ? <ErrorNotice error="You have been signed out." /> : null}
-            <p>
-              Sign-in is handled through your organization’s OIDC provider. Your role, organization membership, and case access
-              are resolved by the backend after authentication.
-            </p>
-            <ul className="list-disc space-y-2 pl-5">
-              <li>Organization-owned identity provider</li>
-              <li>Secure backend session cookies</li>
-              <li>Case closure automatically removes worker access</li>
-              <li>Caregiver and network access continues after closure if still active</li>
-            </ul>
-            <div>
-              <a
-                href={signInHref}
-                className="inline-flex rounded-full bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
-              >
-                Continue to sign in
-              </a>
-            </div>
-          </div>
-        </Card>
-        <Card title="Deployment model">
-          <div className="space-y-3 text-sm text-slate-600">
-            <p>The organization owns identity, storage, secrets, audit, and retention controls.</p>
-            <p>This app does not rely on Avi manually managing end users.</p>
-            <p>Admins invite staff, caregivers, and network users. Access is enforced on the API layer.</p>
-          </div>
-        </Card>
+    <div className="flex flex-wrap gap-3">
+      <button
+        type="button"
+        onClick={onSave}
+        className="rounded-2xl bg-emerald-600 px-4 py-3 font-medium text-white transition hover:bg-emerald-700"
+      >
+        {saveLabel}
+      </button>
+      {onReset ? (
+        <button
+          type="button"
+          onClick={onReset}
+          className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-medium text-slate-700 transition hover:bg-slate-50"
+        >
+          Reset section
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function ProgressBar({ value }: { value: number }) {
+  const clamped = clampScale(value);
+  const tone = getScaleTone(clamped);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className={`text-sm font-semibold ${tone.textClass}`}>{clamped}/10</span>
+        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${tone.badgeClass}`}>{tone.label}</span>
       </div>
-    </PageFrame>
+      <div className="h-3 w-full overflow-hidden rounded-full bg-slate-200">
+        <div className={`h-full rounded-full transition-all ${tone.barClass}`} style={{ width: `${clamped * 10}%` }} />
+      </div>
+    </div>
   );
 }
 
-function AuthCallbackPage() {
-  return (
-    <PageFrame
-      title="Completing sign-in"
-      subtitle="If your sign-in does not complete automatically, return to the sign-in page and try again."
-    >
-      <Card>
-        <p className="text-sm text-slate-600">The backend auth callback is being processed.</p>
-      </Card>
-    </PageFrame>
-  );
+function StatusBadge({ children, className }: { children: React.ReactNode; className: string }) {
+  return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${className}`}>{children}</span>;
 }
 
-function AccessDeniedPage() {
-  const [params] = useSearchParams();
-  const reason = params.get("reason") || "access_denied";
-  const messageByReason: Record<string, string> = {
-    auth_required: "Sign in is required before you can access the application.",
-    auth_not_configured: "Enterprise sign-in is not configured for this deployment yet.",
-    org_admin_required: "Only organization administrators can access this area.",
-    organization_membership_required: "You do not belong to the required organization for this resource.",
-    case_membership_required: "You do not have an active membership for this case.",
-    case_closed_worker_access_revoked: "Worker access ends automatically when the CPS case is closed.",
-    case_closed_supervisor_access_revoked: "Supervisor access to this closed case is disabled by current organization policy.",
-    inactive_user: "Your account is inactive.",
-    user_not_provisioned: "Your identity is valid, but your organization has not provisioned you for this app yet.",
-  };
-
-  return (
-    <PageFrame title="Access denied" subtitle="The backend denied this request based on organization, case, role, or case-state rules.">
-      <Card>
-        <div className="grid gap-3">
-          <ErrorNotice error={messageByReason[reason] || "You do not have permission to access this route."} />
-          <div className="text-sm text-slate-600">Reason code: {reason}</div>
-          <div>
-            <NavLink className="inline-flex rounded-full bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700" to="/app">
-              Back to app
-            </NavLink>
-          </div>
-        </div>
-      </Card>
-    </PageFrame>
-  );
-}
-
-function AppHomePage() {
-  const { session } = useSession();
-  const [cases, setCases] = useState<CaseSummary[]>([]);
-  const [error, setError] = useState<string>("");
+export default function App() {
+  const [activeTab, setActiveTab] = useState<TabKey>("case-status");
+  const [data, setData] = useState<AppData>(loadInitialData);
+  const [banner, setBanner] = useState("");
+  const closureDocumentInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (!session) return;
-    void fetchOrganizationCases(session.organization.id)
-      .then((response) => {
-        setCases(response.cases);
-        setError("");
-      })
-      .catch((err) => {
-        setError(err instanceof ApiError ? err.hint : "Unable to load organization cases.");
-      });
-  }, [session]);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }, [data]);
 
-  if (!session) return null;
-
-  return (
-    <PageFrame
-      title="Organization cases"
-      subtitle="Access to cases is resolved per organization, case membership, user role, and case status."
-    >
-      <div className="mb-6 grid gap-4 md:grid-cols-3">
-        <Metric label="Organization" value={session.organization.name} helper="Organization-owned tenant" />
-        <Metric label="Signed in as" value={session.user.displayName} helper={`${session.user.userType.replace(/_/g, " ")}`} />
-        <Metric label="Accessible cases" value={String(cases.length)} helper="Resolved by backend authorization" />
-      </div>
-      {error ? <ErrorNotice error={error} /> : null}
-      <div className="grid gap-4">
-        {cases.map((caseRecord) => (
-          <Card
-            key={caseRecord.id}
-            title={caseRecord.familyName}
-            right={
-              <div className="flex items-center gap-2">
-                <StatusPill tone={caseRecord.status === "open" ? "green" : "amber"}>{caseRecord.status}</StatusPill>
-                {caseRecord.accessState === "closed_denied" ? (
-                  <StatusPill tone="red">worker blocked</StatusPill>
-                ) : null}
-              </div>
-            }
-          >
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div className="space-y-1 text-sm text-slate-600">
-                <div>Membership role: {caseRecord.membershipRole || "org_admin"}</div>
-                <div>Created: {new Date(caseRecord.createdAt).toLocaleString()}</div>
-                {caseRecord.closedAt ? <div>Closed: {new Date(caseRecord.closedAt).toLocaleString()}</div> : null}
-              </div>
-              <div className="flex items-center gap-3">
-                {caseRecord.accessState === "closed_denied" ? (
-                  <NavLink
-                    className="inline-flex rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    to="/access-denied?reason=case_closed_worker_access_revoked"
-                  >
-                    Access denied
-                  </NavLink>
-                ) : (
-                  <NavLink
-                    className="inline-flex rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                    to={`/cases/${caseRecord.id}`}
-                  >
-                    Open case
-                  </NavLink>
-                )}
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
-    </PageFrame>
+  const confirmedNetworkMembers = useMemo(
+    () => data.networkMembers.filter((member) => member.confirmed && member.name.trim()),
+    [data.networkMembers],
   );
-}
 
-function AdminPage() {
-  const { session } = useSession();
-  const [users, setUsers] = useState<AppUser[]>([]);
-  const [cases, setCases] = useState<CaseSummary[]>([]);
-  const [invitations, setInvitations] = useState<InvitationRecord[]>([]);
-  const [auditEvents, setAuditEvents] = useState<Awaited<ReturnType<typeof fetchAuditEvents>>["events"]>([]);
-  const [error, setError] = useState<string>("");
-  const [inviteResult, setInviteResult] = useState<string>("");
-  const [inviteDelivery, setInviteDelivery] = useState<string>("");
-  const [inviteForm, setInviteForm] = useState({
-    email: "",
-    userType: "network_member" as UserType,
-    caseId: "",
-    caseRole: "network_member" as CaseMembershipRecord["role"],
-  });
-  const [membershipForm, setMembershipForm] = useState({
-    caseId: "",
-    userId: "",
-    role: "network_member" as CaseMembershipRecord["role"],
-  });
+  const continuityReadiness = useMemo(() => {
+    const source = confirmedNetworkMembers.length ? confirmedNetworkMembers : data.networkMembers;
+    const avg = source.reduce((sum, member) => sum + Number(member.reliability || 0), 0) / Math.max(1, source.length);
+    return clampScale(avg);
+  }, [confirmedNetworkMembers, data.networkMembers]);
 
-  const loadAdmin = async () => {
-    if (!session) return;
-    try {
-      const [usersResponse, auditResponse, casesResponse] = await Promise.all([
-        fetchAdminUsers(),
-        fetchAuditEvents(),
-        fetchOrganizationCases(session.organization.id),
-      ]);
-      setUsers(usersResponse.users);
-      setInvitations(usersResponse.invitations);
-      setAuditEvents(auditResponse.events);
-      setCases(casesResponse.cases);
-      setError("");
-    } catch (err) {
-      setError(err instanceof ApiError ? err.hint : "Unable to load admin data.");
-    }
-  };
-
-  useEffect(() => {
-    void loadAdmin();
-  }, [session]);
-
-  const onInvite = async (event: React.FormEvent) => {
-    event.preventDefault();
-    try {
-      const response = await createInvitation(inviteForm);
-      setInviteResult(response.inviteUrl);
-      setInviteDelivery(response.delivery.detail);
-      setInviteForm({ email: "", userType: "network_member", caseId: "", caseRole: "network_member" });
-      await loadAdmin();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.hint : "Unable to create invitation.");
-    }
-  };
-
-  const onMembership = async (event: React.FormEvent) => {
-    event.preventDefault();
-    try {
-      await createCaseMembership(membershipForm);
-      setMembershipForm({ caseId: "", userId: "", role: "network_member" });
-      await loadAdmin();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.hint : "Unable to create case membership.");
-    }
-  };
-
-  if (!session) return null;
-
-  return (
-    <PageFrame
-      title="Organization admin"
-      subtitle="Organization administrators manage users, invitations, case access, closure, and audit visibility without relying on vendor-side manual account handling."
-    >
-      {error ? <div className="mb-4"><ErrorNotice error={error} /></div> : null}
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="grid gap-6">
-          <Card title="Users">
-            <div className="overflow-auto">
-              <table className="w-full min-w-[720px] text-left text-sm">
-                <thead className="text-slate-500">
-                  <tr>
-                    <th className="pb-3">Name</th>
-                    <th className="pb-3">Email</th>
-                    <th className="pb-3">Role</th>
-                    <th className="pb-3">Status</th>
-                    <th className="pb-3">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map((user) => (
-                    <tr key={user.id} className="border-t border-slate-100">
-                      <td className="py-3">{user.displayName}</td>
-                      <td className="py-3 text-slate-600">{user.email}</td>
-                      <td className="py-3">{user.userType}</td>
-                      <td className="py-3">
-                        <StatusPill tone={user.active ? "green" : "red"}>{user.active ? "active" : "inactive"}</StatusPill>
-                      </td>
-                      <td className="py-3">
-                        <button
-                          className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                          onClick={async () => {
-                            await patchUserActive(user.id, !user.active);
-                            await loadAdmin();
-                          }}
-                        >
-                          {user.active ? "Deactivate" : "Reactivate"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
-          <Card title="Audit events">
-            <div className="space-y-3">
-              {auditEvents.map((eventRecord) => (
-                <div key={eventRecord.id} className="rounded-2xl border border-slate-200 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-slate-900">{eventRecord.eventType}</div>
-                    <div className="text-xs text-slate-500">{new Date(eventRecord.createdAt).toLocaleString()}</div>
-                  </div>
-                  <div className="mt-1 text-sm text-slate-600">
-                    Actor: {eventRecord.actorDisplayName || eventRecord.actorUserId || "system"}
-                  </div>
-                  <pre className="mt-3 overflow-auto rounded-2xl bg-slate-950/95 p-3 text-xs text-slate-100">
-                    {JSON.stringify(eventRecord.metadataJson, null, 2)}
-                  </pre>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-
-        <div className="grid gap-6">
-          <Card title="Invite user">
-            <form className="grid gap-4" onSubmit={onInvite}>
-              <Field label="Email">
-                <input
-                  className="input"
-                  value={inviteForm.email}
-                  onChange={(event) => setInviteForm((current) => ({ ...current, email: event.target.value }))}
-                />
-              </Field>
-              <Field label="User type">
-                <select
-                  className="select"
-                  value={inviteForm.userType}
-                  onChange={(event) =>
-                    setInviteForm((current) => ({
-                      ...current,
-                      userType: event.target.value as UserType,
-                    }))
-                  }
-                >
-                  <option value="worker">worker</option>
-                  <option value="supervisor">supervisor</option>
-                  <option value="caregiver">caregiver</option>
-                  <option value="network_member">network_member</option>
-                  <option value="org_admin">org_admin</option>
-                </select>
-              </Field>
-              <Field label="Case (optional)">
-                <select
-                  className="select"
-                  value={inviteForm.caseId}
-                  onChange={(event) => setInviteForm((current) => ({ ...current, caseId: event.target.value }))}
-                >
-                  <option value="">No case binding</option>
-                  {cases.map((caseRecord) => (
-                    <option key={caseRecord.id} value={caseRecord.id}>
-                      {caseRecord.familyName} ({caseRecord.status})
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Case role">
-                <select
-                  className="select"
-                  value={inviteForm.caseRole}
-                  onChange={(event) =>
-                    setInviteForm((current) => ({
-                      ...current,
-                      caseRole: event.target.value as CaseMembershipRecord["role"],
-                    }))
-                  }
-                >
-                  <option value="worker">worker</option>
-                  <option value="supervisor">supervisor</option>
-                  <option value="caregiver">caregiver</option>
-                  <option value="network_member">network_member</option>
-                </select>
-              </Field>
-              <button className="rounded-full bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700" type="submit">
-                Send invitation
-              </button>
-              {inviteResult ? (
-                <div className="grid gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 break-all">
-                  <div>Invite URL: {inviteResult}</div>
-                  {inviteDelivery ? <div>Delivery: {inviteDelivery}</div> : null}
-                </div>
-              ) : null}
-            </form>
-          </Card>
-
-          <Card title="Add user to case">
-            <form className="grid gap-4" onSubmit={onMembership}>
-              <Field label="Case">
-                <select
-                  className="select"
-                  value={membershipForm.caseId}
-                  onChange={(event) => setMembershipForm((current) => ({ ...current, caseId: event.target.value }))}
-                >
-                  <option value="">Select a case</option>
-                  {cases.map((caseRecord) => (
-                    <option key={caseRecord.id} value={caseRecord.id}>
-                      {caseRecord.familyName}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="User">
-                <select
-                  className="select"
-                  value={membershipForm.userId}
-                  onChange={(event) => setMembershipForm((current) => ({ ...current, userId: event.target.value }))}
-                >
-                  <option value="">Select a user</option>
-                  {users.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.displayName} ({user.userType})
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Case role">
-                <select
-                  className="select"
-                  value={membershipForm.role}
-                  onChange={(event) =>
-                    setMembershipForm((current) => ({
-                      ...current,
-                      role: event.target.value as CaseMembershipRecord["role"],
-                    }))
-                  }
-                >
-                  <option value="worker">worker</option>
-                  <option value="supervisor">supervisor</option>
-                  <option value="caregiver">caregiver</option>
-                  <option value="network_member">network_member</option>
-                </select>
-              </Field>
-              <button className="rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800" type="submit">
-                Add case membership
-              </button>
-            </form>
-          </Card>
-
-          <Card title="Open invitations">
-            <div className="space-y-3 text-sm">
-              {invitations.map((invitation) => (
-                <div key={invitation.id} className="rounded-2xl border border-slate-200 p-3">
-                  <div className="font-medium text-slate-900">{invitation.email}</div>
-                  <div className="text-slate-600">
-                    {invitation.userType}
-                    {invitation.caseRole ? ` · ${invitation.caseRole}` : ""}
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    {invitation.acceptedAt ? `Accepted ${new Date(invitation.acceptedAt).toLocaleString()}` : "Pending"}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-      </div>
-    </PageFrame>
+  const activeRules = useMemo(() => data.rules.filter((rule) => rule.status !== "Completed"), [data.rules]);
+  const finalizedRules = useMemo(() => data.rules.filter((rule) => rule.status === "Completed"), [data.rules]);
+  const openAppointments = useMemo(
+    () => data.closureAppointments.filter((item) => item.status !== "Completed"),
+    [data.closureAppointments],
   );
-}
+  const archivedAppointments = useMemo(
+    () => data.closureAppointments.filter((item) => item.status === "Completed"),
+    [data.closureAppointments],
+  );
+  const activeActionItems = useMemo(
+    () => data.closureActionItems.filter((item) => item.status !== "Completed"),
+    [data.closureActionItems],
+  );
+  const archivedActionItems = useMemo(
+    () => data.closureActionItems.filter((item) => item.status === "Completed"),
+    [data.closureActionItems],
+  );
+  const activeFireDrills = useMemo(
+    () => data.fireDrills.filter((item) => item.status !== "Completed"),
+    [data.fireDrills],
+  );
+  const archivedFireDrills = useMemo(
+    () => data.fireDrills.filter((item) => item.status === "Completed"),
+    [data.fireDrills],
+  );
 
-function CasePage() {
-  const { caseId = "" } = useParams();
-  const navigate = useNavigate();
-  const { session, refresh } = useSession();
-  const [activeTab, setActiveTab] = useStoredTab("case-status");
-  const [casePayload, setCasePayload] = useState<({ ok: true } & CaseResponse) | null>(null);
-  const [draftState, setDraftState] = useState<CaseState>(cloneDefaultCaseState());
-  const [journalEntries, setJournalEntries] = useState<Awaited<ReturnType<typeof fetchJournal>>["entries"]>([]);
-  const [journalForm, setJournalForm] = useState({
-    audience: "all_members" as JournalAudience,
-    message: "",
-  });
-  const [closureNote, setClosureNote] = useState("");
-  const [documentFile, setDocumentFile] = useState<File | null>(null);
-  const [documentMessage, setDocumentMessage] = useState("");
-  const [uploadingDocument, setUploadingDocument] = useState(false);
-  const [error, setError] = useState<string>("");
-  const [saving, setSaving] = useState(false);
+  const planningPhases: { key: PlanningPhaseKey; field: "immediatePlan" | "intermediatePlan" | "longTermPlan"; color: string }[] = [
+    { key: "immediate", field: "immediatePlan", color: "border-rose-200 bg-rose-50" },
+    { key: "intermediate", field: "intermediatePlan", color: "border-amber-200 bg-amber-50" },
+    { key: "longTerm", field: "longTermPlan", color: "border-emerald-200 bg-emerald-50" },
+  ];
 
-  const loadCase = async () => {
-    if (!caseId) return;
-    try {
-      const [caseResponse, journalResponse] = await Promise.all([fetchCase(caseId), fetchJournal(caseId)]);
-      setCasePayload(caseResponse);
-      setDraftState(normalizeCaseState(caseResponse.state));
-      setJournalEntries(journalResponse.entries);
-      setError("");
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.code.startsWith("case_closed") || err.code === "case_membership_required") {
-          navigate(`/access-denied?reason=${encodeURIComponent(err.code)}`, { replace: true });
-          return;
-        }
-        setError(err.hint);
-      } else {
-        setError("Unable to load case.");
-      }
-    }
+  const updatePlanningLayer = (field: "immediatePlan" | "intermediatePlan" | "longTermPlan", patch: Partial<PlanningLayer>) => {
+    setData((current) => ({ ...current, [field]: { ...current[field], ...patch } }));
   };
 
-  useEffect(() => {
-    void loadCase();
-  }, [caseId]);
+  const promotePlanningLayer = (from: PlanningPhaseKey, to: PlanningPhaseKey) => {
+    const fieldMap = { immediate: "immediatePlan", intermediate: "intermediatePlan", longTerm: "longTermPlan" } as const;
+    const sourceField = fieldMap[from];
+    const targetField = fieldMap[to];
+    setData((current) => {
+      const source = current[sourceField];
+      const target = current[targetField];
+      const nextActions = [target.actions.trim(), source.actions.trim()].filter(Boolean).join("\n");
+      const nextMembers = [target.members.trim(), source.members.trim()].filter(Boolean).join(", ");
+      return {
+        ...current,
+        currentPlanningPhase: to,
+        [sourceField]: { ...source, status: "Completed", promotedAt: nowStamp() },
+        [targetField]: {
+          ...target,
+          status: target.status === "Completed" ? target.status : "Active",
+          actions: nextActions,
+          members: nextMembers,
+        },
+      };
+    });
+    setBanner(`Planning content promoted from ${from} to ${to}.`);
+  };
 
-  const currentRole = casePayload?.membership?.role || session?.user.userType || "org_admin";
+  const saveSection = (name: string) => setBanner(`${name} saved on this device.`);
 
-  const nextNetworkStepSummary = useMemo(() => {
-    const completed = draftState.nextNetworkSteps.filter((item) => item.completed).length;
-    return {
-      completed,
-      pending: Math.max(0, draftState.nextNetworkSteps.length - completed),
-    };
-  }, [draftState.nextNetworkSteps]);
+  const updateField = <K extends keyof AppData>(key: K, value: AppData[K]) => {
+    setData((current) => ({ ...current, [key]: value }));
+  };
 
-  const updateDraftNextNetworkStepsText = (value: string) => {
-    setDraftState((current) => ({
+  const updateNetworkMember = (id: string, field: keyof NetworkMember, value: string | number | boolean) => {
+    setData((current) => ({
       ...current,
-      nextNetworkStepsText: value,
-      nextNetworkSteps: buildNextNetworkStepsFromText(value, current.nextNetworkSteps),
-    }));
-  };
-
-  const toggleDraftNextNetworkStep = (id: string) => {
-    setDraftState((current) => ({
-      ...current,
-      nextNetworkSteps: current.nextNetworkSteps.map((item) =>
-        item.id === id ? { ...item, completed: !item.completed } : item,
+      networkMembers: current.networkMembers.map((item) =>
+        item.id === id ? { ...item, [field]: field === "reliability" ? clampScale(Number(value)) : value } : item,
       ),
     }));
   };
 
-  const saveCaseState = async () => {
-    if (!casePayload) return;
-    setSaving(true);
-    try {
-      await patchCase(casePayload.caseRecord.id, {
-        familyName: casePayload.caseRecord.familyName,
-        state: draftState,
-      });
-      await loadCase();
-      await refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.hint : "Unable to save case.");
-    } finally {
-      setSaving(false);
-    }
+  const addNetworkMember = () => {
+    setData((current) => ({
+      ...current,
+      networkMembers: [...current.networkMembers, normalizeNetworkMember({ reliability: 5 })],
+    }));
   };
 
-  const submitJournal = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!casePayload) return;
-    try {
-      await createJournal(casePayload.caseRecord.id, journalForm);
-      setJournalForm((current) => ({ ...current, message: "" }));
-      await loadCase();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.hint : "Unable to post journal entry.");
-    }
+  const removeNetworkMember = (id: string) => {
+    setData((current) => ({
+      ...current,
+      networkMembers: current.networkMembers.filter((item) => item.id !== id),
+    }));
   };
 
-  const submitClosure = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!casePayload) return;
-    try {
-      await closeCase(casePayload.caseRecord.id, closureNote);
-      await loadCase();
-      await refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.hint : "Unable to close case.");
-    }
+  const updateTimelineEntry = (id: string, field: keyof TimelineEntry, value: string) => {
+    setData((current) => ({
+      ...current,
+      timelineEntries: current.timelineEntries.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
+    }));
   };
 
-  const submitDocumentUpload = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!casePayload || !documentFile) return;
-    setUploadingDocument(true);
-    try {
-      await uploadCaseDocument(casePayload.caseRecord.id, documentFile);
-      setDocumentMessage(`Uploaded ${documentFile.name}.`);
-      setDocumentFile(null);
-      await loadCase();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.hint : "Unable to upload document.");
-    } finally {
-      setUploadingDocument(false);
-    }
+  const addTimelineEntry = () => {
+    setData((current) => ({
+      ...current,
+      timelineEntries: [...current.timelineEntries, { id: makeId("timeline"), date: "", title: "", helper: "" }],
+    }));
   };
 
-  if (!casePayload) {
-    return (
-      <PageFrame title="Case" subtitle="Loading case data…">
-        {error ? <ErrorNotice error={error} /> : <div className="text-sm text-slate-600">Loading…</div>}
-      </PageFrame>
-    );
-  }
+  const removeTimelineEntry = (id: string) => {
+    setData((current) => ({
+      ...current,
+      timelineEntries: current.timelineEntries.filter((item) => item.id !== id),
+    }));
+  };
 
-  const { caseRecord, memberships, permissions, documents } = casePayload;
+  const updateRule = (id: string, field: keyof RuleItem, value: string) => {
+    setData((current) => ({
+      ...current,
+      rules: current.rules.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              [field]: value,
+              completedAt:
+                field === "status" && value === "Completed"
+                  ? item.completedAt || nowStamp()
+                  : field === "status" && value !== "Completed"
+                    ? undefined
+                    : item.completedAt,
+            }
+          : item,
+      ),
+    }));
+  };
+
+  const addRule = () => {
+    setData((current) => ({
+      ...current,
+      rules: [...current.rules, normalizeRule({ status: "On track" })],
+    }));
+  };
+
+  const removeRule = (id: string) => {
+    setData((current) => ({ ...current, rules: current.rules.filter((item) => item.id !== id) }));
+  };
+
+  const updatePlanAdaptation = (id: string, field: keyof PlanAdaptationItem, value: string) => {
+    setData((current) => ({
+      ...current,
+      planAdaptations: current.planAdaptations.map((item) =>
+        item.id === id ? { ...item, [field]: value, updatedAt: nowStamp() } : item,
+      ),
+    }));
+  };
+
+  const addPlanAdaptation = () => {
+    setData((current) => ({
+      ...current,
+      planAdaptations: [...current.planAdaptations, normalizePlanAdaptation({ status: "Suggested" })],
+    }));
+  };
+
+  const removePlanAdaptation = (id: string) => {
+    setData((current) => ({
+      ...current,
+      planAdaptations: current.planAdaptations.filter((item) => item.id !== id),
+    }));
+  };
+
+  const updateMonitoringItem = (id: string, field: keyof MonitoringItem, value: string | boolean) => {
+    setData((current) => ({
+      ...current,
+      monitoringItems: current.monitoringItems.map((item) =>
+        item.id === id ? { ...item, [field]: value } : item,
+      ),
+    }));
+  };
+
+  const addMonitoringItem = () => {
+    setData((current) => ({
+      ...current,
+      monitoringItems: [...current.monitoringItems, { id: makeId("monitor"), text: "", checked: false }],
+    }));
+  };
+
+  const removeMonitoringItem = (id: string) => {
+    setData((current) => ({
+      ...current,
+      monitoringItems: current.monitoringItems.filter((item) => item.id !== id),
+    }));
+  };
+
+  const updateFireDrill = (id: string, field: keyof FireDrillItem, value: string) => {
+    setData((current) => ({
+      ...current,
+      fireDrills: current.fireDrills.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              [field]: value,
+              completedAt:
+                field === "status" && value === "Completed"
+                  ? item.completedAt || nowStamp()
+                  : field === "status" && value !== "Completed"
+                    ? undefined
+                    : item.completedAt,
+            }
+          : item,
+      ),
+    }));
+  };
+
+  const addFireDrill = () => {
+    setData((current) => ({
+      ...current,
+      fireDrills: [...current.fireDrills, normalizeFireDrill({ status: "Pending" })],
+    }));
+  };
+
+  const removeFireDrill = (id: string) => {
+    setData((current) => ({
+      ...current,
+      fireDrills: current.fireDrills.filter((item) => item.id !== id),
+    }));
+  };
+
+  const updateClosureDocument = (id: string, name: string) => {
+    setData((current) => ({
+      ...current,
+      closureDocuments: current.closureDocuments.map((item) => (item.id === id ? { ...item, name } : item)),
+    }));
+  };
+
+  const addClosureDocument = () => {
+    setData((current) => ({
+      ...current,
+      closureDocuments: [...current.closureDocuments, { id: makeId("doc"), name: "" }],
+    }));
+  };
+
+  const addClosureDocumentsFromFiles = (files: FileList | null) => {
+    if (!files?.length) return;
+    setData((current) => ({
+      ...current,
+      closureDocuments: [
+        ...current.closureDocuments,
+        ...Array.from(files).map((file) => ({ id: makeId("doc"), name: file.name })),
+      ],
+    }));
+  };
+
+  const removeClosureDocument = (id: string) => {
+    setData((current) => ({
+      ...current,
+      closureDocuments: current.closureDocuments.filter((item) => item.id !== id),
+    }));
+  };
+
+  const updateClosureAppointment = (id: string, field: keyof AppointmentItem, value: string) => {
+    setData((current) => ({
+      ...current,
+      closureAppointments: current.closureAppointments.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              [field]: value,
+              completedAt:
+                field === "status" && value === "Completed"
+                  ? item.completedAt || nowStamp()
+                  : field === "status" && value !== "Completed"
+                    ? undefined
+                    : item.completedAt,
+            }
+          : item,
+      ),
+    }));
+  };
+
+  const addClosureAppointment = () => {
+    setData((current) => ({
+      ...current,
+      closureAppointments: [...current.closureAppointments, normalizeAppointment({ status: "Scheduled" })],
+    }));
+  };
+
+  const removeClosureAppointment = (id: string) => {
+    setData((current) => ({
+      ...current,
+      closureAppointments: current.closureAppointments.filter((item) => item.id !== id),
+    }));
+  };
+
+  const updateClosureActionItem = (id: string, field: keyof ActionItem, value: string) => {
+    setData((current) => ({
+      ...current,
+      closureActionItems: current.closureActionItems.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              [field]: value,
+              completedAt:
+                field === "status" && value === "Completed"
+                  ? item.completedAt || nowStamp()
+                  : field === "status" && value !== "Completed"
+                    ? undefined
+                    : item.completedAt,
+            }
+          : item,
+      ),
+    }));
+  };
+
+  const addClosureActionItem = () => {
+    setData((current) => ({
+      ...current,
+      closureActionItems: [...current.closureActionItems, normalizeActionItem({ status: "Planned" })],
+    }));
+  };
+
+  const removeClosureActionItem = (id: string) => {
+    setData((current) => ({
+      ...current,
+      closureActionItems: current.closureActionItems.filter((item) => item.id !== id),
+    }));
+  };
+
+  const addJournalEntry = () => {
+    const author = data.journalEntryAuthor.trim() || "Unknown author";
+    const message = data.journalEntryText.trim();
+    const audience = data.journalEntryAudience.trim() || "All network members and caregivers";
+    if (!message) {
+      setBanner("Enter a journal note before posting it.");
+      return;
+    }
+    const timestamp = nowStamp();
+    const notifyTarget =
+      data.caseClosureStatus === "Closed to CPS" && data.journalNotifyTarget === "Worker only"
+        ? "Network and caregivers"
+        : data.journalNotifyTarget;
+    const alertRecipientLabel =
+      notifyTarget === "Worker only"
+        ? "the worker while the case remains open"
+        : notifyTarget === "Everyone on file"
+          ? "all registered network members, caregivers, and the worker if the case is still open"
+          : "all registered network members and caregivers";
+    setData((current) => ({
+      ...current,
+      journalEntryText: "",
+      journalEntries: [
+        normalizeJournalEntry({
+          author,
+          audience,
+          message,
+          timestamp,
+          urgency: data.journalEntryUrgency,
+          notifyTarget,
+          alertsSentAt: timestamp,
+        }),
+        ...current.journalEntries,
+      ],
+    }));
+    setBanner(`Journal entry posted. Alert notice recorded for ${alertRecipientLabel}.`);
+  };
+
+  const removeJournalEntry = (id: string) => {
+    setData((current) => ({
+      ...current,
+      journalEntries: current.journalEntries.filter((item) => item.id !== id),
+    }));
+  };
+
+  const resetJournalSection = () => {
+    setData((current) => ({
+      ...current,
+      journalEntryAuthor: "",
+      journalEntryAudience: defaultData.journalEntryAudience,
+      journalEntryText: "",
+      journalEntryUrgency: "Routine",
+      journalNotifyTarget: defaultData.journalNotifyTarget,
+    }));
+    setBanner("Journal entry form reset.");
+  };
+
+  const deleteClosureSection = () => {
+    setData((current) => ({
+      ...current,
+      caseClosureStatus: defaultData.caseClosureStatus,
+      closureAlertNote: defaultData.closureAlertNote,
+      closureAppointments: defaultData.closureAppointments,
+      closureActionItems: defaultData.closureActionItems,
+      closureDocuments: defaultData.closureDocuments,
+      planAdaptations: defaultData.planAdaptations,
+    }));
+    setBanner("Closure and ongoing safeguarding section reset.");
+  };
+
+  const planStabilityTone = getScaleTone(data.planStability);
+  const safeguardingTone = getScaleTone(data.safeguardingScale);
 
   return (
-    <PageFrame
-      title={caseRecord.familyName}
-      subtitle="Case access is enforced server-side by organization, role, case membership, and case status."
-    >
-      {error ? <div className="mb-4"><ErrorNotice error={error} /></div> : null}
-      <div className="mb-6 grid gap-4 lg:grid-cols-4">
-        <Metric label="Case status" value={caseRecord.status} helper="Backend-enforced closure rules" />
-        <Metric label="Your role" value={String(currentRole)} helper="Derived from membership or org admin" />
-        <Metric label="Plan stability" value={`${draftState.planStability}%`} helper="Stored in case state" />
-        <Metric label="Journal entries" value={String(journalEntries.length)} helper="Persisted in backend data" />
-      </div>
-
-      <div className="mb-6 flex flex-wrap gap-2">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            className={`rounded-full px-4 py-2 text-sm font-medium ${
-              activeTab === tab.key ? "bg-blue-600 text-white" : "bg-white text-slate-700 hover:bg-slate-50"
-            }`}
-            onClick={() => setActiveTab(tab.key)}
-            type="button"
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="grid gap-6">
-        {activeTab === "case-status" ? (
-          <Card
-            title="Case status"
-            right={
-              permissions.canEditCaseState ? (
-                <button
-                  className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                  disabled={saving}
-                  onClick={saveCaseState}
-                >
-                  {saving ? "Saving..." : "Save case state"}
-                </button>
-              ) : null
-            }
-          >
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Current phase">
-                <input
-                  className="input"
-                  value={draftState.currentPhaseLabel}
-                  onChange={(event) => setDraftState((current) => ({ ...current, currentPhaseLabel: event.target.value }))}
-                  disabled={!permissions.canEditCaseState}
-                />
-              </Field>
-              <Field label="Current watchpoint">
-                <input
-                  className="input"
-                  value={draftState.currentWatchpoint}
-                  onChange={(event) => setDraftState((current) => ({ ...current, currentWatchpoint: event.target.value }))}
-                  disabled={!permissions.canEditCaseState}
-                />
-              </Field>
-              <Field label="Caregiver summary">
-                <textarea
-                  className="textarea"
-                  value={draftState.caregiverSummary}
-                  onChange={(event) => setDraftState((current) => ({ ...current, caregiverSummary: event.target.value }))}
-                  disabled={!permissions.canEditCaseState}
-                />
-              </Field>
-              <Field label="Risk statement">
-                <textarea
-                  className="textarea"
-                  value={draftState.riskStatement}
-                  onChange={(event) => setDraftState((current) => ({ ...current, riskStatement: event.target.value }))}
-                  disabled={!permissions.canEditCaseState}
-                />
-              </Field>
-            </div>
-            <div className="mt-6">
-              <Field label="Plan stability">
-                <ProgressBar value={draftState.planStability} />
-              </Field>
-            </div>
-          </Card>
-        ) : null}
-
-        {activeTab === "timeline" ? (
-          <Card title="Timeline">
-            <div className="space-y-4">
-              {draftState.timelineEntries.map((entry) => (
-                <div key={entry.id} className="rounded-2xl border border-slate-200 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-semibold text-slate-900">{entry.title}</div>
-                    <div className="text-xs text-slate-500">{entry.date}</div>
-                  </div>
-                  <div className="mt-2 text-sm text-slate-600">{entry.helper}</div>
+    <div className="min-h-screen bg-slate-100">
+      <div className="mx-auto max-w-7xl p-4 md:p-8">
+        <div className="space-y-6">
+          <section className="rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full border border-teal-200 bg-teal-50 p-2">
+                  <img src="/sgt-logo.png" alt="SgT logo" className="h-full w-full object-contain" />
                 </div>
+                <div>
+                  <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Network Manager</h1>
+                  <p className="mt-1 text-sm text-slate-500">
+                    A working safeguarding, continuity, and self-management tool for one family, their network, and supporting professionals.
+                  </p>
+                </div>
+              </div>
+              <div className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-700">
+                Practitioner View
+              </div>
+            </div>
+          </section>
+
+          {banner ? <SaveBanner message={banner} onDismiss={() => setBanner("")} /> : null}
+
+          <section className="rounded-3xl border border-slate-200 bg-white p-2 shadow-sm">
+            <div className="scrollbar-hide flex min-w-max gap-2 overflow-x-auto">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`rounded-2xl px-4 py-3 text-sm font-medium transition ${
+                    activeTab === tab.key ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                  }`}
+                >
+                  {tab.label}
+                </button>
               ))}
             </div>
-          </Card>
-        ) : null}
+          </section>
 
-        {activeTab === "network" ? (
-          <Card
-            title="Network building"
-            right={
-              permissions.canEditCaseState ? (
-                <button
-                  className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                  disabled={saving}
-                  onClick={saveCaseState}
-                >
-                  {saving ? "Saving..." : "Save network updates"}
-                </button>
-              ) : null
-            }
-          >
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="space-y-4">
-                <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-500">Case memberships</h3>
-                {memberships.map((membership) => (
-                  <div key={membership.id} className="rounded-2xl border border-slate-200 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="font-semibold text-slate-900">{membership.displayName || membership.email || membership.userId}</div>
-                        <div className="text-sm text-slate-600">{membership.role}</div>
-                      </div>
-                      <StatusPill tone={membership.active ? "green" : "red"}>{membership.active ? "active" : "inactive"}</StatusPill>
+          {activeTab === "case-status" && (
+            <div className="space-y-6">
+              <Card title="Family Safeguarding Workspace">
+                <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+                  <div className="space-y-4">
+                    <SectionActions onSave={() => saveSection("Workspace")} />
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Field label="Current workspace">
+                        <input value={data.workspaceName} onChange={(e) => updateField("workspaceName", e.target.value)} className="input" />
+                      </Field>
+                      <Field label="Workspace mode">
+                        <input value={data.workspaceMode} onChange={(e) => updateField("workspaceMode", e.target.value)} className="input" />
+                      </Field>
                     </div>
-                    {permissions.canManageMemberships ? (
-                      <div className="mt-3 flex gap-2">
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm font-medium text-slate-700">Continuity status</p>
+                    <div className="mt-3 space-y-3">
+                      <Field label="Current phase">
+                        <input value={data.currentPhaseLabel} onChange={(e) => updateField("currentPhaseLabel", e.target.value)} className="input" />
+                      </Field>
+                      <Field label="Post-closure continuity">
+                        <input value={data.postClosureContinuity} onChange={(e) => updateField("postClosureContinuity", e.target.value)} className="input" />
+                      </Field>
+                      <Field label="Network self-management tools">
+                        <input
+                          value={data.networkSelfManagementTools}
+                          onChange={(e) => updateField("networkSelfManagementTools", e.target.value)}
+                          className="input"
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <Metric label="Current Phase" value={data.currentPhaseLabel} helper="Built to continue after formal closure" />
+                <Metric label="Confirmed Network Members" value={String(confirmedNetworkMembers.length)} helper="Auto-populated from the Network Building tab" />
+                <Metric label="Plan Stability" value={`${data.planStability}/10`} helper={planStabilityTone.label} />
+                <Metric label="Continuity Readiness" value={`${continuityReadiness}/10`} helper="Average willingness, ability, and confidence across confirmed members" />
+              </div>
+
+              <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+                <Card title="Case Overview">
+                  <div className="space-y-4">
+                    <SectionActions onSave={() => saveSection("Case status")} />
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Field label="Case status">
+                        <input value={data.caseStatus} onChange={(e) => updateField("caseStatus", e.target.value)} className="input" />
+                      </Field>
+                      <Field label="Family name">
+                        <input value={data.familyName} onChange={(e) => updateField("familyName", e.target.value)} className="input" />
+                      </Field>
+                      <Field label="Lead practitioner">
+                        <input value={data.leadPractitioner} onChange={(e) => updateField("leadPractitioner", e.target.value)} className="input" />
+                      </Field>
+                      <Field label="Case start date">
+                        <input value={data.caseStartDate} onChange={(e) => updateField("caseStartDate", e.target.value)} className="input" />
+                      </Field>
+                    </div>
+                    <Field label="Caregiver summary">
+                      <textarea value={data.caregiverSummary} onChange={(e) => updateField("caregiverSummary", e.target.value)} className="textarea" />
+                    </Field>
+                    <Field label="Current watchpoint">
+                      <textarea value={data.currentWatchpoint} onChange={(e) => updateField("currentWatchpoint", e.target.value)} className="textarea" />
+                    </Field>
+                    <Field label="Immediate actions">
+                      <textarea value={data.immediateActionsText} onChange={(e) => updateField("immediateActionsText", e.target.value)} className="textarea" />
+                    </Field>
+                  </div>
+                </Card>
+
+                <div className="space-y-6">
+                  <Card title="Plan Stability">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm text-slate-600">Current judgement of how stable and dependable the plan is right now.</p>
+                        </div>
+                        <StatusBadge className={planStabilityTone.badgeClass}>{planStabilityTone.label}</StatusBadge>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="10"
+                        step="0.1"
+                        value={data.planStability}
+                        onChange={(e) => updateField("planStability", clampScale(Number(e.target.value)))}
+                        className={`range-input w-full ${planStabilityTone.trackClass}`}
+                      />
+                      <div className="range-scale-labels">
+                        <span className="range-scale-label">0, Unstable</span>
+                        <span className="range-scale-label">10, Strong and dependable</span>
+                      </div>
+                      <ProgressBar value={data.planStability} />
+                    </div>
+                  </Card>
+
+                  <Card title="Confirmed Network Members">
+                    <div className="space-y-4">
+                      <p className="text-sm text-slate-600">
+                        This section updates automatically from confirmed entries in the Network Building tab.
+                      </p>
+                      {confirmedNetworkMembers.length ? (
+                        <div className="grid gap-4 md:grid-cols-2">
+                          {confirmedNetworkMembers.map((member) => (
+                            <div key={member.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                              <div>
+                                <p className="text-base font-semibold text-slate-900">{member.name}</p>
+                                <p className="text-sm text-slate-600">{member.relationship || "Relationship not entered"}</p>
+                              </div>
+                              <div className="mt-3 space-y-1 text-sm text-slate-700">
+                                <p><span className="font-medium text-slate-900">Role:</span> {member.role || "Not entered"}</p>
+                                <p><span className="font-medium text-slate-900">Availability:</span> {member.availability || "Not entered"}</p>
+                                <p><span className="font-medium text-slate-900">Phone:</span> {member.phone || "Not entered"}</p>
+                                <p><span className="font-medium text-slate-900">Email:</span> {member.email || "Not entered"}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                          No confirmed network members yet.
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "timeline" && (
+            <div className="space-y-6">
+              <Card title="Timeline">
+                <div className="space-y-6">
+                  <SectionActions onSave={() => saveSection("Timeline")} />
+                  <div className="grid gap-4">
+                    <Field label="Risk Statement">
+                      <textarea value={data.riskStatement} onChange={(e) => updateField("riskStatement", e.target.value)} className="textarea" />
+                    </Field>
+                    <Field label="Safeguarding Goals">
+                      <textarea value={data.safeguardingGoals} onChange={(e) => updateField("safeguardingGoals", e.target.value)} className="textarea" />
+                    </Field>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="font-medium text-slate-900">Safeguarding Scale</p>
+                        <p className="mt-1 text-sm text-slate-500">Current shared judgement of safeguarding strength and reliability.</p>
+                      </div>
+                      <StatusBadge className={safeguardingTone.badgeClass}>{data.safeguardingScale}/10</StatusBadge>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      <input
+                        type="range"
+                        min="0"
+                        max="10"
+                        step="0.1"
+                        value={data.safeguardingScale}
+                        onChange={(e) => updateField("safeguardingScale", clampScale(Number(e.target.value)))}
+                        className={`range-input w-full ${safeguardingTone.trackClass}`}
+                      />
+                      <div className="range-scale-labels">
+                        <span className="range-scale-label">0, Unsafe and unstable</span>
+                        <span className="range-scale-label">10, Strong and sustainable safeguarding</span>
+                      </div>
+                      <ProgressBar value={data.safeguardingScale} />
+                    </div>
+                  </div>
+                </div>
+              </Card>
+
+              <Card
+                title="Timeline Pathway"
+                right={
+                  <button type="button" onClick={addTimelineEntry} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    Add timeline entry
+                  </button>
+                }
+              >
+                <div className="space-y-4">
+                  {data.timelineEntries.map((item, index) => (
+                    <div key={item.id} className="rounded-2xl border border-slate-200 p-4">
+                      <div className="mb-4 flex items-center justify-between">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-50 text-sm font-semibold text-blue-700">
+                          {index + 1}
+                        </div>
                         <button
-                          className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                          onClick={async () => {
-                            await patchCaseMembership(membership.id, { active: !membership.active });
-                            await loadCase();
-                          }}
+                          type="button"
+                          onClick={() => removeTimelineEntry(item.id)}
+                          className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700"
                         >
-                          {membership.active ? "Revoke access" : "Restore access"}
+                          Remove
                         </button>
                       </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-              <div className="space-y-4">
-                <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-500">Supporting network detail</h3>
-                {draftState.networkMembers.map((member) => (
-                  <div key={member.id} className="rounded-2xl border border-slate-200 p-4">
-                    <div className="font-semibold text-slate-900">{member.name}</div>
-                    <div className="mt-1 text-sm text-slate-600">{member.relationship}</div>
-                    <div className="mt-2 text-sm text-slate-600">{member.role}</div>
-                    <div className="mt-2 text-xs text-slate-500">Availability: {member.availability || "Not recorded"}</div>
-                  </div>
-                ))}
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-500">Network gaps</div>
-                  <Field label="Current gaps">
-                    <textarea
-                      className="textarea mt-3"
-                      value={draftState.currentGapsText}
-                      onChange={(event) => setDraftState((current) => ({ ...current, currentGapsText: event.target.value }))}
-                      disabled={!permissions.canEditCaseState}
-                    />
-                  </Field>
-                </div>
-                <div className="rounded-2xl border border-slate-200 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-500">Next steps</div>
-                    <div className="text-xs font-medium text-slate-500">
-                      {nextNetworkStepSummary.completed} completed · {nextNetworkStepSummary.pending} pending
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <Field label="Date">
+                          <input value={item.date} onChange={(e) => updateTimelineEntry(item.id, "date", e.target.value)} className="input" />
+                        </Field>
+                        <Field label="Entry title">
+                          <input value={item.title} onChange={(e) => updateTimelineEntry(item.id, "title", e.target.value)} className="input" />
+                        </Field>
+                      </div>
+                      <div className="mt-4">
+                        <Field label="Details">
+                          <textarea value={item.helper} onChange={(e) => updateTimelineEntry(item.id, "helper", e.target.value)} className="textarea" />
+                        </Field>
+                      </div>
                     </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === "network" && (
+            <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+              <Card
+                title="Network Members & Roles"
+                right={
+                  <button type="button" onClick={addNetworkMember} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    Add network member
+                  </button>
+                }
+              >
+                <div className="space-y-4">
+                  <SectionActions onSave={() => saveSection("Network building")} />
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                    Confirmed network members automatically appear on the main Case Status page with their contact details.
                   </div>
-                  <Field label="Next network-building steps">
-                    <textarea
-                      className="textarea mt-3"
-                      value={draftState.nextNetworkStepsText}
-                      onChange={(event) => updateDraftNextNetworkStepsText(event.target.value)}
-                      disabled={!permissions.canEditCaseState}
-                    />
-                  </Field>
-                  <div className="mt-4 space-y-3">
-                    {draftState.nextNetworkSteps.length === 0 ? (
-                      <div className="text-sm text-slate-500">No next steps recorded yet.</div>
-                    ) : (
-                      draftState.nextNetworkSteps.map((item) => (
-                        <label
-                          key={item.id}
-                          className={`flex items-start gap-3 rounded-2xl border px-3 py-3 text-sm ${
-                            item.completed
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                              : "border-rose-200 bg-rose-50 text-rose-900"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={item.completed}
-                            onChange={() => toggleDraftNextNetworkStep(item.id)}
-                            disabled={!permissions.canEditCaseState}
-                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className={item.completed ? "line-through opacity-80" : ""}>{item.text}</div>
-                            <div
-                              className={`mt-1 text-xs font-medium uppercase tracking-[0.12em] ${
-                                item.completed ? "text-emerald-700" : "text-rose-700"
-                              }`}
-                            >
-                              {item.completed ? "Completed" : "Pending"}
-                            </div>
+                  {data.networkMembers.map((person) => {
+                    const personTone = getScaleTone(person.reliability);
+                    return (
+                      <div key={person.id} className="rounded-2xl border border-slate-200 p-4">
+                        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <p className="font-medium text-slate-900">{person.name || "New network member"}</p>
+                            <p className="text-sm text-slate-500">{person.role || "Role not entered yet"}</p>
                           </div>
-                        </label>
-                      ))
-                    )}
-                  </div>
+                          <div className="flex items-center gap-3">
+                            <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={person.confirmed}
+                                onChange={(e) => updateNetworkMember(person.id, "confirmed", e.target.checked)}
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                              Confirmed member
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => removeNetworkMember(person.id)}
+                              className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <Field label="Name">
+                            <input value={person.name} onChange={(e) => updateNetworkMember(person.id, "name", e.target.value)} className="input" />
+                          </Field>
+                          <Field label="Relationship">
+                            <input value={person.relationship} onChange={(e) => updateNetworkMember(person.id, "relationship", e.target.value)} className="input" />
+                          </Field>
+                          <Field label="Role">
+                            <input value={person.role} onChange={(e) => updateNetworkMember(person.id, "role", e.target.value)} className="input" />
+                          </Field>
+                          <Field label="Availability">
+                            <input value={person.availability} onChange={(e) => updateNetworkMember(person.id, "availability", e.target.value)} className="input" />
+                          </Field>
+                          <Field label="Phone">
+                            <input value={person.phone} onChange={(e) => updateNetworkMember(person.id, "phone", e.target.value)} className="input" />
+                          </Field>
+                          <Field label="Email">
+                            <input value={person.email} onChange={(e) => updateNetworkMember(person.id, "email", e.target.value)} className="input" />
+                          </Field>
+                        </div>
+                        <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="font-medium text-slate-900">Willingness / Ability / Confidence</p>
+                              <p className="text-sm text-slate-500">Rate each confirmed member from 0 to 10.</p>
+                            </div>
+                            <StatusBadge className={personTone.badgeClass}>{person.reliability}/10</StatusBadge>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="10"
+                            step="0.1"
+                            value={person.reliability}
+                            onChange={(e) => updateNetworkMember(person.id, "reliability", Number(e.target.value))}
+                            className={`range-input w-full ${personTone.trackClass}`}
+                          />
+                          <div className="range-scale-labels">
+                            <span className="range-scale-label">0, Not ready or able</span>
+                            <span className="range-scale-label">10, Highly ready and dependable</span>
+                          </div>
+                          <ProgressBar value={person.reliability} />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-            </div>
-          </Card>
-        ) : null}
+              </Card>
 
-        {activeTab === "planning" ? (
-          <Card title="Safeguarding planning">
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Field label="Safeguarding goals">
-                <textarea
-                  className="textarea"
-                  value={draftState.safeguardingGoals}
-                  onChange={(event) => setDraftState((current) => ({ ...current, safeguardingGoals: event.target.value }))}
-                  disabled={!permissions.canEditCaseState}
-                />
-              </Field>
-              <Field label="Immediate actions">
-                <textarea
-                  className="textarea"
-                  value={draftState.immediateActionsText}
-                  onChange={(event) => setDraftState((current) => ({ ...current, immediateActionsText: event.target.value }))}
-                  disabled={!permissions.canEditCaseState}
-                />
-              </Field>
-            </div>
-            <div className="mt-6 space-y-4">
-              {draftState.rules.map((rule) => (
-                <div key={rule.id} className="rounded-2xl border border-slate-200 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-semibold text-slate-900">{rule.title}</div>
-                    <StatusPill tone={rule.status === "On track" ? "green" : rule.status === "Needs review" ? "amber" : "red"}>
-                      {rule.status}
-                    </StatusPill>
-                  </div>
-                  <div className="mt-2 text-sm text-slate-600">
-                    Owner: {rule.owner} · Backup: {rule.backup}
-                  </div>
-                  <div className="mt-2 text-sm text-slate-600">{rule.note}</div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        ) : null}
-
-        {activeTab === "monitoring" ? (
-          <Card title="Monitoring and testing">
-            <div className="grid gap-6 lg:grid-cols-2">
-              <div className="space-y-3">
-                {draftState.monitoringItems.map((item) => (
-                  <div key={item.id} className="rounded-2xl border border-slate-200 p-4 text-sm text-slate-700">
-                    {item.text}
-                  </div>
-                ))}
-              </div>
-              <div className="grid gap-4">
-                <Field label="Fire drill scenario">
-                  <textarea
-                    className="textarea"
-                    value={draftState.fireDrillScenario}
-                    onChange={(event) => setDraftState((current) => ({ ...current, fireDrillScenario: event.target.value }))}
-                    disabled={!permissions.canEditCaseState}
-                  />
-                </Field>
-                <Field label="Fire drill notes">
-                  <textarea
-                    className="textarea"
-                    value={draftState.fireDrillRecordNotes}
-                    onChange={(event) => setDraftState((current) => ({ ...current, fireDrillRecordNotes: event.target.value }))}
-                    disabled={!permissions.canEditCaseState}
-                  />
-                </Field>
-              </div>
-            </div>
-          </Card>
-        ) : null}
-
-        {activeTab === "journal" ? (
-          <Card title="Shared journal">
-            <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="space-y-4">
-                {journalEntries.map((entry) => (
-                  <div key={entry.id} className="rounded-2xl border border-slate-200 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-semibold text-slate-900">{entry.author}</div>
-                      <div className="text-xs text-slate-500">{new Date(entry.timestamp).toLocaleString()}</div>
+              <Card title="Current Gaps & Next Network Steps">
+                <div className="space-y-6">
+                  <Field label="Current gaps">
+                    <textarea value={data.currentGapsText} onChange={(e) => updateField("currentGapsText", e.target.value)} className="textarea" />
+                  </Field>
+                  <Field label="Next network steps">
+                    <textarea
+                      value={data.nextNetworkStepsText}
+                      onChange={(e) => {
+                        const nextText = e.target.value;
+                        updateField("nextNetworkStepsText", nextText);
+                        updateField("nextNetworkSteps", normalizeNextNetworkSteps(undefined, nextText));
+                      }}
+                      className="textarea"
+                    />
+                  </Field>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm font-medium text-slate-900">Track progress on next steps</p>
+                    <div className="mt-3 space-y-3">
+                      {data.nextNetworkSteps.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-500">
+                          Add next steps above to track them here.
+                        </div>
+                      ) : (
+                        data.nextNetworkSteps.map((item) => (
+                          <label key={item.id} className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={item.completed}
+                              onChange={() =>
+                                updateField(
+                                  "nextNetworkSteps",
+                                  data.nextNetworkSteps.map((step) =>
+                                    step.id === item.id ? { ...step, completed: !step.completed } : step,
+                                  ),
+                                )
+                              }
+                              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className={item.completed ? "line-through opacity-80" : ""}>{item.text}</div>
+                              <div className={`mt-1 text-xs font-medium uppercase tracking-[0.12em] ${item.completed ? "text-emerald-700" : "text-rose-700"}`}>
+                                {item.completed ? "Completed" : "Pending"}
+                              </div>
+                            </div>
+                          </label>
+                        ))
+                      )}
                     </div>
-                    <div className="mt-1 text-xs uppercase tracking-[0.12em] text-slate-500">{entry.audience.replace(/_/g, " ")}</div>
-                    <div className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{entry.message}</div>
                   </div>
-                ))}
-              </div>
-              <form className="grid gap-4" onSubmit={submitJournal}>
-                <Field label="Audience">
-                  <select
-                    className="select"
-                    value={journalForm.audience}
-                    onChange={(event) =>
-                      setJournalForm((current) => ({
-                        ...current,
-                        audience: event.target.value as JournalAudience,
-                      }))
-                    }
-                    disabled={!permissions.canPostJournal}
-                  >
-                    <option value="all_members">all members</option>
-                    <option value="caregiver_network">caregiver and network</option>
-                    <option value="staff_only">staff only</option>
-                  </select>
-                </Field>
-                <Field label="Message">
-                  <textarea
-                    className="textarea"
-                    value={journalForm.message}
-                    onChange={(event) => setJournalForm((current) => ({ ...current, message: event.target.value }))}
-                    disabled={!permissions.canPostJournal}
-                  />
-                </Field>
-                <button
-                  className="rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
-                  disabled={!permissions.canPostJournal}
-                  type="submit"
-                >
-                  Add journal entry
-                </button>
-              </form>
-            </div>
-          </Card>
-        ) : null}
-
-        {activeTab === "closure" ? (
-          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-            <Card title="Closure and ongoing safeguarding">
-              <div className="grid gap-4">
-                <Field label="Closure alert">
-                  <textarea
-                    className="textarea"
-                    value={draftState.closureAlertNote}
-                    onChange={(event) => setDraftState((current) => ({ ...current, closureAlertNote: event.target.value }))}
-                    disabled={!permissions.canEditCaseState}
-                  />
-                </Field>
-                <Field label="Post-closure continuity">
-                  <textarea
-                    className="textarea"
-                    value={draftState.closureJournalText}
-                    onChange={(event) => setDraftState((current) => ({ ...current, closureJournalText: event.target.value }))}
-                    disabled={!permissions.canEditCaseState}
-                  />
-                </Field>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                  Workers lose access automatically once the case is closed. Caregivers and active network members retain access.
                 </div>
-                <div className="space-y-3">
-                  <div className="text-sm font-semibold text-slate-900">Documents</div>
-                  <form className="grid gap-3 rounded-2xl border border-slate-200 p-4" onSubmit={submitDocumentUpload}>
-                    <Field
-                      label="Upload supporting document"
-                      helper="Documents are stored in organization-owned object storage when the deployment has a storage binding."
-                    >
-                      <input
-                        className="input"
-                        type="file"
-                        onChange={(event) => setDocumentFile(event.target.files?.[0] || null)}
-                        disabled={uploadingDocument || !permissions.canUploadDocuments}
-                      />
-                    </Field>
-                    <button
-                      className="rounded-full bg-slate-950 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
-                      type="submit"
-                      disabled={!documentFile || uploadingDocument || !permissions.canUploadDocuments}
-                    >
-                      {uploadingDocument ? "Uploading..." : "Upload document"}
-                    </button>
-                    {documentMessage ? <div className="text-xs text-emerald-700">{documentMessage}</div> : null}
-                  </form>
-                  {documents.length === 0 ? (
-                    <div className="text-sm text-slate-500">No documents have been uploaded yet.</div>
-                  ) : (
-                    documents.map((document) => (
-                      <div key={document.id} className="rounded-2xl border border-slate-200 p-3 text-sm text-slate-700">
-                        <div className="font-medium text-slate-900">{document.fileName}</div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {document.mimeType} · uploaded by {document.uploadedBy} · {new Date(document.createdAt).toLocaleString()}
+              </Card>
+            </div>
+          )}
+
+          {activeTab === "planning" && (
+            <div className="space-y-6">
+              <Card title="Safeguarding Planning Flow">
+                <div className="space-y-5">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">Planning progression</p>
+                        <p className="mt-1 text-sm text-slate-600">Immediate safety is short-lived, intermediate safeguarding is the bridge, and long-term safeguarding is the only active plan after closure.</p>
+                      </div>
+                      <StatusBadge className="border border-blue-200 bg-blue-50 text-blue-700">
+                        Current active phase: {data.currentPlanningPhase === "immediate" ? "Immediate safety" : data.currentPlanningPhase === "intermediate" ? "Intermediate safeguarding" : "Long-term safeguarding"}
+                      </StatusBadge>
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      {planningPhases.map((phase, index) => {
+                        const item = data[phase.field];
+                        const isActive = data.currentPlanningPhase === phase.key;
+                        return (
+                          <div key={phase.key} className={`rounded-2xl border p-4 ${phase.color} ${isActive ? "ring-2 ring-blue-200" : ""}`}>
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-sm font-semibold text-slate-900">{index + 1}. {item.heading}</span>
+                              <StatusBadge className={isActive ? "border border-blue-200 bg-white text-blue-700" : "border border-slate-200 bg-white text-slate-700"}>{item.status}</StatusBadge>
+                            </div>
+                            <p className="mt-2 text-sm text-slate-700">{item.purpose}</p>
+                            {item.promotedAt ? <p className="mt-2 text-xs text-slate-500">Archived on {item.promotedAt}</p> : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {planningPhases.map((phase, index) => {
+                    const item = data[phase.field];
+                    const nextPhase = phase.key === "immediate" ? "intermediate" : phase.key === "intermediate" ? "longTerm" : null;
+                    return (
+                      <div key={phase.key} className={`rounded-2xl border p-5 ${phase.color}`}>
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div>
+                            <div className="flex items-center gap-3">
+                              <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-900">Phase {index + 1}</span>
+                              <StatusBadge className="border border-slate-200 bg-white text-slate-700">{item.status}</StatusBadge>
+                            </div>
+                            <h3 className="mt-3 text-xl font-semibold text-slate-900">{item.heading}</h3>
+                            <p className="mt-2 text-sm text-slate-700">{item.purpose}</p>
+                          </div>
+                          <div className="flex flex-wrap gap-3">
+                            <select value={item.status} onChange={(e) => updatePlanningLayer(phase.field, { status: e.target.value as PlanningPhaseStatus })} className="input min-w-[180px]">
+                              <option>Draft</option>
+                              <option>Active</option>
+                              <option>Being reviewed</option>
+                              <option>Completed</option>
+                            </select>
+                            {nextPhase ? (
+                              <button type="button" onClick={() => promotePlanningLayer(phase.key, nextPhase)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                                Promote into {nextPhase === "intermediate" ? "Intermediate" : "Long-term"}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="mt-5 grid gap-4 md:grid-cols-2">
+                          <Field label="Review date">
+                            <input value={item.reviewDate} onChange={(e) => updatePlanningLayer(phase.field, { reviewDate: e.target.value })} className="input" />
+                          </Field>
+                          <Field label="Key members involved">
+                            <input value={item.members} onChange={(e) => updatePlanningLayer(phase.field, { members: e.target.value })} className="input" />
+                          </Field>
+                        </div>
+                        <div className="mt-4">
+                          <Field label="Actions, arrangements, or commitments for this phase">
+                            <textarea value={item.actions} onChange={(e) => updatePlanningLayer(phase.field, { actions: e.target.value })} className="textarea" />
+                          </Field>
+                        </div>
+                        {phase.key === "longTerm" && data.caseClosureStatus === "Closed to CPS" ? (
+                          <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-4 text-sm text-emerald-800">
+                            This is the only active safeguarding plan after closure. Immediate and intermediate planning phases are retained as history.
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+
+              <Card title="Safeguarding Rules and Commitments"
+                right={
+                  <button type="button" onClick={addRule} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    Add safeguarding rule
+                  </button>
+                }
+              >
+                <div className="space-y-4">
+                  <SectionActions onSave={() => saveSection("Safeguarding planning")} />
+                  {activeRules.map((rule, index) => (
+                    <div key={rule.id} className="rounded-2xl border border-slate-200 p-5">
+                      <div className="mb-4 flex items-center justify-between">
+                        <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">Rule {index + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeRule(rule.id)}
+                          className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <Field label="Rule title">
+                          <input value={rule.title} onChange={(e) => updateRule(rule.id, "title", e.target.value)} className="input" />
+                        </Field>
+                        <Field label="Status">
+                          <select value={rule.status} onChange={(e) => updateRule(rule.id, "status", e.target.value)} className="input">
+                            <option>On track</option>
+                            <option>Needs review</option>
+                            <option>At risk</option>
+                            <option>Completed</option>
+                          </select>
+                        </Field>
+                        <Field label="Primary owner">
+                          <input value={rule.owner} onChange={(e) => updateRule(rule.id, "owner", e.target.value)} className="input" />
+                        </Field>
+                        <Field label="Backup">
+                          <input value={rule.backup} onChange={(e) => updateRule(rule.id, "backup", e.target.value)} className="input" />
+                        </Field>
+                      </div>
+                      <div className="mt-4 grid gap-4">
+                        <Field label="Notes">
+                          <textarea value={rule.note} onChange={(e) => updateRule(rule.id, "note", e.target.value)} className="textarea" />
+                        </Field>
+                        <Field label="Check method">
+                          <input value={rule.checkMethod} onChange={(e) => updateRule(rule.id, "checkMethod", e.target.value)} className="input" />
+                        </Field>
+                        <Field label="If it breaks down">
+                          <input value={rule.breakdownPlan} onChange={(e) => updateRule(rule.id, "breakdownPlan", e.target.value)} className="input" />
+                        </Field>
+                      </div>
+                    </div>
+                  ))}
+                  {!activeRules.length ? (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                      No active safeguarding rules. Add a new rule above or review finalized rules below.
+                    </div>
+                  ) : null}
+                </div>
+              </Card>
+
+              <Card title="Safeguarding Plan Finalized Rules">
+                <div className="space-y-4">
+                  {finalizedRules.length ? (
+                    finalizedRules.map((rule) => (
+                      <div key={rule.id} className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <p className="font-semibold text-emerald-900">{rule.title || "Completed safeguarding rule"}</p>
+                            <p className="text-sm text-emerald-800">Owner: {rule.owner || "Not entered"}{rule.backup ? `, backup: ${rule.backup}` : ""}</p>
+                          </div>
+                          <StatusBadge className="border border-emerald-200 bg-white text-emerald-700">
+                            Completed{rule.completedAt ? ` • ${rule.completedAt}` : ""}
+                          </StatusBadge>
+                        </div>
+                        <div className="mt-3 space-y-2 text-sm text-emerald-900">
+                          {rule.note ? <p><span className="font-medium">Notes:</span> {rule.note}</p> : null}
+                          {rule.checkMethod ? <p><span className="font-medium">Check method:</span> {rule.checkMethod}</p> : null}
+                          {rule.breakdownPlan ? <p><span className="font-medium">Breakdown plan:</span> {rule.breakdownPlan}</p> : null}
                         </div>
                       </div>
                     ))
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                      Completed safeguarding rules will move here automatically.
+                    </div>
                   )}
                 </div>
-              </div>
-            </Card>
+              </Card>
+            </div>
+          )}
 
-            <Card title="Case closure">
-              <form className="grid gap-4" onSubmit={submitClosure}>
-                <div className="text-sm text-slate-600">
-                  Closing a case updates the case state, writes an audit event, and causes worker access to end automatically on the backend.
-                </div>
-                <Field label="Closure note">
-                  <textarea
-                    className="textarea"
-                    value={closureNote}
-                    onChange={(event) => setClosureNote(event.target.value)}
-                    disabled={!permissions.canCloseCase || caseRecord.status === "closed"}
-                  />
-                </Field>
-                <button
-                  className="rounded-full bg-rose-600 px-4 py-3 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
-                  disabled={!permissions.canCloseCase || caseRecord.status === "closed"}
-                  type="submit"
+{activeTab === "monitoring" && (
+            <div className="space-y-6">
+              <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+                <Card
+                  title="Monitoring Checklist"
+                  right={
+                    <button type="button" onClick={addMonitoringItem} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                      Add checklist item
+                    </button>
+                  }
                 >
-                  {caseRecord.status === "closed" ? "Case already closed" : "Close case"}
-                </button>
-              </form>
-            </Card>
-          </div>
-        ) : null}
-      </div>
-    </PageFrame>
-  );
-}
+                  <div className="space-y-3">
+                    <SectionActions onSave={() => saveSection("Monitoring and testing")} />
+                    {data.monitoringItems.map((item, index) => (
+                      <div key={item.id} className="rounded-2xl border border-slate-200 px-4 py-3">
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={item.checked}
+                            onChange={(e) => updateMonitoringItem(item.id, "checked", e.target.checked)}
+                            className="mt-1"
+                          />
+                          <div className="flex-1 space-y-2">
+                            <div className="text-xs font-medium text-slate-500">Item {index + 1}</div>
+                            <input value={item.text} onChange={(e) => updateMonitoringItem(item.id, "text", e.target.value)} className="input" />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeMonitoringItem(item.id)}
+                            className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
 
-export default function App() {
-  return (
-    <Routes>
-      <Route path="/" element={<RootRedirect />} />
-      <Route path="/sign-in" element={<SignInPage />} />
-      <Route path="/auth/callback" element={<AuthCallbackPage />} />
-      <Route path="/access-denied" element={<AccessDeniedPage />} />
-      <Route element={<ProtectedRoute />}>
-        <Route element={<Layout />}>
-          <Route path="/app" element={<AppHomePage />} />
-          <Route path="/cases/:caseId" element={<CasePage />} />
-          <Route element={<AdminRoute />}>
-            <Route path="/admin" element={<AdminPage />} />
-          </Route>
-        </Route>
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+                <Card
+                  title="Fire Drill & Testing"
+                  right={
+                    <button type="button" onClick={addFireDrill} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                      Add fire drill
+                    </button>
+                  }
+                >
+                  <div className="space-y-4">
+                    {activeFireDrills.map((item, index) => (
+                      <div key={item.id} className="rounded-2xl border border-slate-200 p-4">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                          <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">Fire drill {index + 1}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeFireDrill(item.id)}
+                            className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <Field label="Scenario">
+                            <textarea value={item.scenario} onChange={(e) => updateFireDrill(item.id, "scenario", e.target.value)} className="textarea" />
+                          </Field>
+                          <Field label="Participants">
+                            <textarea value={item.participants} onChange={(e) => updateFireDrill(item.id, "participants", e.target.value)} className="textarea" />
+                          </Field>
+                          <Field label="Scheduled date">
+                            <input value={item.date} onChange={(e) => updateFireDrill(item.id, "date", e.target.value)} className="input" />
+                          </Field>
+                          <Field label="Progress">
+                            <select value={item.status} onChange={(e) => updateFireDrill(item.id, "status", e.target.value)} className="input">
+                              <option>Pending</option>
+                              <option>In progress</option>
+                              <option>Completed</option>
+                            </select>
+                          </Field>
+                        </div>
+                        <div className="mt-4">
+                          <Field label="Testing notes">
+                            <textarea value={item.notes} onChange={(e) => updateFireDrill(item.id, "notes", e.target.value)} className="textarea" />
+                          </Field>
+                        </div>
+                      </div>
+                    ))}
+                    {!activeFireDrills.length ? (
+                      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                        No active fire drills in the main list.
+                      </div>
+                    ) : null}
+                  </div>
+                </Card>
+              </div>
+
+              <Card title="Completed Fire Drills">
+                <div className="space-y-4">
+                  {archivedFireDrills.length ? (
+                    archivedFireDrills.map((item) => (
+                      <div key={item.id} className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <p className="font-semibold text-emerald-900">{item.scenario || "Completed fire drill"}</p>
+                            <p className="text-sm text-emerald-800">
+                              {item.date || "Date not entered"} • {item.participants || "Participants not entered"}
+                            </p>
+                          </div>
+                          <StatusBadge className="border border-emerald-200 bg-white text-emerald-700">
+                            Completed{item.completedAt ? ` • ${item.completedAt}` : ""}
+                          </StatusBadge>
+                        </div>
+                        {item.notes ? <p className="mt-3 text-sm text-emerald-900 whitespace-pre-wrap">{item.notes}</p> : null}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                      Completed fire drills will move here automatically.
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === "journal" && (
+            <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+              <Card title="Add Journal Entry">
+                <div className="space-y-4">
+                  <SectionActions onSave={addJournalEntry} onReset={resetJournalSection} saveLabel="Post journal entry" />
+                  <p className="text-sm text-slate-600">
+                    Use the journal to record notes, questions, communication, and urgent alerts between caregivers and network members.
+                  </p>
+                  <Field label="Author">
+                    <input value={data.journalEntryAuthor} onChange={(e) => updateField("journalEntryAuthor", e.target.value)} className="input" />
+                  </Field>
+                  <Field label="Audience">
+                    <input value={data.journalEntryAudience} onChange={(e) => updateField("journalEntryAudience", e.target.value)} className="input" />
+                  </Field>
+                  <Field label="Urgency or alert level">
+                    <select value={data.journalEntryUrgency} onChange={(e) => updateField("journalEntryUrgency", e.target.value as JournalUrgency)} className="input">
+                      <option>Routine</option>
+                      <option>Important</option>
+                      <option>Urgent</option>
+                    </select>
+                  </Field>
+                  <Field
+                    label="Who should be alerted immediately"
+                    helper={data.caseClosureStatus === "Closed to CPS" ? "Worker-only alerts automatically route back to network and caregivers after closure." : "Worker notifications are only intended while the case remains open."}
+                  >
+                    <select value={data.journalNotifyTarget} onChange={(e) => updateField("journalNotifyTarget", e.target.value as JournalNotifyTarget)} className="input">
+                      <option>Network and caregivers</option>
+                      <option>Worker only</option>
+                      <option>Everyone on file</option>
+                    </select>
+                  </Field>
+                  <Field label="Journal note">
+                    <textarea value={data.journalEntryText} onChange={(e) => updateField("journalEntryText", e.target.value)} className="textarea" />
+                  </Field>
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                    In this local version, posting a journal entry records the alert target and timestamp. Live email or text delivery requires backend messaging integration.
+                  </div>
+                </div>
+              </Card>
+
+              <Card title="Shared Journal Feed">
+                <div className="space-y-4">
+                  {data.journalEntries.length ? (
+                    data.journalEntries.map((entry) => {
+                      const urgencyTone =
+                        entry.urgency === "Urgent"
+                          ? "border border-rose-200 bg-rose-50 text-rose-700"
+                          : entry.urgency === "Important"
+                            ? "border border-amber-200 bg-amber-50 text-amber-700"
+                            : "border border-slate-200 bg-slate-100 text-slate-700";
+                      return (
+                        <div key={entry.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div className="space-y-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-base font-semibold text-slate-900">{entry.author}</p>
+                                <StatusBadge className={urgencyTone}>{entry.urgency}</StatusBadge>
+                              </div>
+                              <p className="text-sm text-slate-500">{entry.audience}</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{entry.timestamp}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeJournalEntry(entry.id)}
+                                className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                          <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">{entry.message}</p>
+                          <div className="mt-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
+                            Alert target: <span className="font-medium text-slate-900">{entry.notifyTarget}</span>
+                            {entry.alertsSentAt ? (
+                              <span> • Alert recorded at <span className="font-medium text-slate-900">{entry.alertsSentAt}</span></span>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                      No journal entries yet. Add the first shared note for the family and network.
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === "closure" && (
+            <div className="space-y-6">
+              <Card
+                title="Post-Closure Support Tools"
+                right={
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => closureDocumentInputRef.current?.click()}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Add closure document
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => saveSection("Closure documents")}
+                      className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-emerald-700"
+                    >
+                      Save documents
+                    </button>
+                  </div>
+                }
+              >
+                <details open className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <summary className="cursor-pointer list-none text-base font-semibold text-slate-900">Closure Documents</summary>
+                  <p className="mt-3 text-sm text-slate-600">
+                    Upload or list all relevant closure documents so the family and network can access them for reference after CPS closure.
+                  </p>
+                  <input
+                    ref={closureDocumentInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      addClosureDocumentsFromFiles(event.target.files);
+                      event.target.value = "";
+                    }}
+                  />
+                  <div className="mt-4 grid gap-3">
+                    {data.closureDocuments.map((doc) => (
+                      <div key={doc.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 md:flex-row md:items-center">
+                        <input value={doc.name} onChange={(e) => updateClosureDocument(doc.id, e.target.value)} className="input" placeholder="Enter closure document name or reference" />
+                        <button
+                          type="button"
+                          onClick={() => removeClosureDocument(doc.id)}
+                          className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4">
+                    <button type="button" onClick={addClosureDocument} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                      Add blank document row
+                    </button>
+                  </div>
+                </details>
+              </Card>
+
+              <Card title="Worst Case Scenario">
+                <div className="space-y-3">
+                  <p className="text-sm text-slate-600">
+                    The family and network must call child welfare for help immediately if any of the following situations or conditions occur.
+                  </p>
+                  <div className="space-y-3">
+                    {WORST_CASE_SCENARIOS.map((item) => (
+                      <div key={item} className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </Card>
+
+              <Card title="Closure Stage and Ongoing Safeguarding Actions">
+                <div className="space-y-5">
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => saveSection("Closure and ongoing safeguarding")}
+                      className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-emerald-700"
+                    >
+                      Save this section
+                    </button>
+                    <button
+                      type="button"
+                      onClick={deleteClosureSection}
+                      className="rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm font-medium text-rose-700 transition hover:bg-rose-50"
+                    >
+                      Delete section content
+                    </button>
+                  </div>
+
+                  <div className={`rounded-2xl border px-4 py-4 ${getClosureStatusClasses(data.caseClosureStatus)}`}>
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="space-y-2">
+                        <div className="text-xs font-semibold uppercase tracking-[0.18em]">Case status alert</div>
+                        <div className="text-lg font-semibold">{data.caseClosureStatus}</div>
+                        <p className="text-sm leading-6">{data.closureAlertNote}</p>
+                      </div>
+                      <div className="w-full max-w-sm">
+                        <Field label="Update closure alert status">
+                          <select
+                            value={data.caseClosureStatus}
+                            onChange={(e) => updateField("caseClosureStatus", e.target.value as AppData["caseClosureStatus"])}
+                            className="input"
+                          >
+                            <option>CPS active</option>
+                            <option>Closure planned</option>
+                            <option>Closed to CPS</option>
+                            <option>Urgent CPS review</option>
+                          </select>
+                        </Field>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Card
+                    title="Network Appointments and Action Management"
+                    right={
+                      <div className="flex flex-wrap gap-3">
+                        <button type="button" onClick={addClosureAppointment} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                          Add appointment
+                        </button>
+                        <button type="button" onClick={addClosureActionItem} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                          Add action item
+                        </button>
+                      </div>
+                    }
+                  >
+                    <div className="space-y-6">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <h3 className="text-base font-semibold text-slate-900">Upcoming and active meetings</h3>
+                        <p className="mt-1 text-sm text-slate-600">
+                          Once a meeting has happened, mark it completed. It will move out of the main list and remain stored below with notes and a timestamp.
+                        </p>
+                        <div className="mt-4 grid gap-3">
+                          {openAppointments.length ? (
+                            openAppointments.map((item) => (
+                              <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                                <div className="grid gap-4 md:grid-cols-2">
+                                  <Field label="Meeting title">
+                                    <input value={item.title} onChange={(e) => updateClosureAppointment(item.id, "title", e.target.value)} className="input" />
+                                  </Field>
+                                  <Field label="Status">
+                                    <select value={item.status} onChange={(e) => updateClosureAppointment(item.id, "status", e.target.value)} className="input">
+                                      <option>Scheduled</option>
+                                      <option>Completed</option>
+                                    </select>
+                                  </Field>
+                                  <Field label="Date">
+                                    <input type="date" value={item.date} onChange={(e) => updateClosureAppointment(item.id, "date", e.target.value)} className="input" />
+                                  </Field>
+                                  <Field label="Time">
+                                    <input type="time" value={item.time} onChange={(e) => updateClosureAppointment(item.id, "time", e.target.value)} className="input" />
+                                  </Field>
+                                  <Field label="Location">
+                                    <input value={item.location} onChange={(e) => updateClosureAppointment(item.id, "location", e.target.value)} className="input" />
+                                  </Field>
+                                  <Field label="Meeting notes">
+                                    <textarea value={item.notes} onChange={(e) => updateClosureAppointment(item.id, "notes", e.target.value)} className="textarea" />
+                                  </Field>
+                                </div>
+                                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                                  <div>
+                                    <span className="font-medium text-slate-900">Booked:</span> {item.date || "Date pending"} at {item.time || "Time pending"}{item.location ? `, ${item.location}` : ""}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeClosureAppointment(item.id)}
+                                    className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600">
+                              No active meetings in the main list.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <h3 className="text-base font-semibold text-slate-900">Archived meetings</h3>
+                        <div className="mt-4 grid gap-3">
+                          {archivedAppointments.length ? (
+                            archivedAppointments.map((item) => (
+                              <div key={item.id} className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                  <div>
+                                    <p className="font-semibold text-emerald-900">{item.title || "Completed meeting"}</p>
+                                    <p className="text-sm text-emerald-800">
+                                      {item.date || "Date pending"} {item.time ? `at ${item.time}` : ""}{item.location ? ` • ${item.location}` : ""}
+                                    </p>
+                                  </div>
+                                  <StatusBadge className="border border-emerald-200 bg-white text-emerald-700">
+                                    Completed{item.completedAt ? ` • ${item.completedAt}` : ""}
+                                  </StatusBadge>
+                                </div>
+                                {item.notes ? <p className="mt-3 whitespace-pre-wrap text-sm text-emerald-900">{item.notes}</p> : null}
+                              </div>
+                            ))
+                          ) : (
+                            <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600">
+                              Completed meetings will move here automatically.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <h3 className="text-base font-semibold text-slate-900">Meeting action items</h3>
+                        <p className="mt-1 text-sm text-slate-600">
+                          Completed items move out of the main list and remain available below with notes and a completion timestamp.
+                        </p>
+                        <div className="mt-4 grid gap-3">
+                          {activeActionItems.length ? (
+                            activeActionItems.map((item) => (
+                              <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                                <div className="grid gap-4 md:grid-cols-2">
+                                  <Field label="Action item">
+                                    <input value={item.title} onChange={(e) => updateClosureActionItem(item.id, "title", e.target.value)} className="input" />
+                                  </Field>
+                                  <Field label="Responsible person">
+                                    <input value={item.owner} onChange={(e) => updateClosureActionItem(item.id, "owner", e.target.value)} className="input" />
+                                  </Field>
+                                  <Field label="Status">
+                                    <select value={item.status} onChange={(e) => updateClosureActionItem(item.id, "status", e.target.value)} className="input">
+                                      <option>Planned</option>
+                                      <option>In progress</option>
+                                      <option>Completed</option>
+                                    </select>
+                                  </Field>
+                                  <Field label="Notes or outcome">
+                                    <textarea value={item.notes} onChange={(e) => updateClosureActionItem(item.id, "notes", e.target.value)} className="textarea" />
+                                  </Field>
+                                </div>
+                                <div className="mt-4 flex justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={() => removeClosureActionItem(item.id)}
+                                    className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600">
+                              No active action items in the main list.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <h3 className="text-base font-semibold text-slate-900">Completed action items</h3>
+                        <div className="mt-4 grid gap-3">
+                          {archivedActionItems.length ? (
+                            archivedActionItems.map((item) => (
+                              <div key={item.id} className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                  <div>
+                                    <p className="font-semibold text-emerald-900">{item.title || "Completed action item"}</p>
+                                    <p className="text-sm text-emerald-800">Responsible person: {item.owner || "Not entered"}</p>
+                                  </div>
+                                  <StatusBadge className="border border-emerald-200 bg-white text-emerald-700">
+                                    Completed{item.completedAt ? ` • ${item.completedAt}` : ""}
+                                  </StatusBadge>
+                                </div>
+                                {item.notes ? <p className="mt-3 whitespace-pre-wrap text-sm text-emerald-900">{item.notes}</p> : null}
+                              </div>
+                            ))
+                          ) : (
+                            <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600">
+                              Completed action items will move here automatically.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                          <div>
+                            <h3 className="text-base font-semibold text-slate-900">Plan Adaptation Recommendations</h3>
+                            <p className="mt-1 text-sm text-slate-600">
+                              Use this section to number, track, and manage new rule suggestions or adaptations to the safeguarding plan.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={addPlanAdaptation}
+                            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            Add recommendation
+                          </button>
+                        </div>
+                        <div className="space-y-4">
+                          {data.planAdaptations.map((item, index) => (
+                            <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                              <div className="mb-4 flex items-center justify-between gap-3">
+                                <StatusBadge className="border border-blue-200 bg-blue-50 text-blue-700">
+                                  Recommendation {index + 1}
+                                </StatusBadge>
+                                <button
+                                  type="button"
+                                  onClick={() => removePlanAdaptation(item.id)}
+                                  className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <Field label="Suggested change or addition">
+                                  <textarea value={item.recommendation} onChange={(e) => updatePlanAdaptation(item.id, "recommendation", e.target.value)} className="textarea" />
+                                </Field>
+                                <Field label="Progress">
+                                  <select value={item.status} onChange={(e) => updatePlanAdaptation(item.id, "status", e.target.value)} className="input">
+                                    <option>Suggested</option>
+                                    <option>In review</option>
+                                    <option>Agreed</option>
+                                    <option>Implemented</option>
+                                  </select>
+                                </Field>
+                                <Field label="Suggested by">
+                                  <input value={item.suggestedBy} onChange={(e) => updatePlanAdaptation(item.id, "suggestedBy", e.target.value)} className="input" />
+                                </Field>
+                                <Field label="Responsible person">
+                                  <input value={item.responsible} onChange={(e) => updatePlanAdaptation(item.id, "responsible", e.target.value)} className="input" />
+                                </Field>
+                              </div>
+                              <div className="mt-4 grid gap-4">
+                                <Field label="Notes or rationale">
+                                  <textarea value={item.notes} onChange={(e) => updatePlanAdaptation(item.id, "notes", e.target.value)} className="textarea" />
+                                </Field>
+                                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                                  Added {item.createdAt}{item.updatedAt ? ` • Updated ${item.updatedAt}` : ""}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                </div>
+              </Card>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
