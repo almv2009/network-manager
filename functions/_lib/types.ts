@@ -1,7 +1,9 @@
 import type {
   AccessDeniedReason,
+  AlternativePaymentRequestRecord,
   AppUser,
   AuditEventRecord,
+  BillingEventRecord,
   CaseMembershipRecord,
   CaseResponse,
   CaseState,
@@ -10,6 +12,7 @@ import type {
   InvitationRecord,
   OrganizationRecord,
   SessionPayload,
+  SupportTicketRecord,
   UserType,
 } from "../../shared/types";
 
@@ -71,6 +74,23 @@ export type Env = {
   DOCUMENT_ALLOWED_MIME_TYPES?: string;
   INVITE_EMAIL_WEBHOOK_URL?: string;
   INVITE_EMAIL_WEBHOOK_BEARER_TOKEN?: string;
+  RESEND_API_KEY?: string;
+  MAIL_FROM_ADDRESS?: string;
+  MAIL_REPLY_TO_ADDRESS?: string;
+  RESEND_FROM_EMAIL?: string;
+  RESEND_REPLY_TO?: string;
+  SUPPORT_EMAIL?: string;
+  PLATFORM_OWNER_EMAILS?: string;
+  ENABLE_ALTERNATIVE_PAYMENTS?: string;
+  ALLOWED_ALTERNATIVE_PAYMENT_METHODS?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_PRICE_ID_TEAM?: string;
+  STRIPE_PRICE_ID_SMALL_ORGANIZATION?: string;
+  STRIPE_PRICE_ID_MEDIUM_ORGANIZATION?: string;
+  STRIPE_PRICE_ID_LARGE_ORGANIZATION?: string;
+  STRIPE_SUCCESS_URL?: string;
+  STRIPE_CANCEL_URL?: string;
 };
 
 export type AppContext<P extends Record<string, string> = Record<string, string>> = {
@@ -85,6 +105,8 @@ export type AppContext<P extends Record<string, string> = Record<string, string>
 export type ApiErrorCode =
   | "auth_required"
   | "org_admin_required"
+  | "organization_unlicensed"
+  | "organization_archived"
   | "organization_membership_required"
   | "case_membership_required"
   | "case_closed_worker_access_revoked"
@@ -165,6 +187,15 @@ export type UserRow = {
   updated_at: string;
 };
 
+export type LocalCredentialRow = {
+  user_id: string;
+  password_hash: string;
+  password_salt: string;
+  password_iterations: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type MembershipRow = {
   id: string;
   case_id: string;
@@ -228,6 +259,76 @@ export type InvitationRow = {
   revoked_at: string | null;
 };
 
+export type SupportTicketRow = {
+  id: string;
+  user_id: string | null;
+  organization_id: string | null;
+  full_name: string;
+  email: string;
+  organization_name: string | null;
+  summary: string;
+  details: string;
+  steps_to_reproduce: string | null;
+  expected_outcome: string | null;
+  actual_outcome: string | null;
+  current_path: string | null;
+  active_tab: string | null;
+  screenshot_name: string | null;
+  screenshot_content_type: string | null;
+  screenshot_data_url: string | null;
+  target_email: string;
+  status: string;
+  admin_notes: string | null;
+  created_at: string;
+};
+
+export type AlternativePaymentRequestRow = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  user_id: string | null;
+  organization_id: string | null;
+  full_name: string;
+  organization_name: string;
+  email: string;
+  plan_id: string;
+  plan_name: string;
+  seat_count: number;
+  preferred_payment_method: string;
+  country: string;
+  region: string | null;
+  po_number: string | null;
+  notes: string | null;
+  request_status: string;
+  admin_notes: string | null;
+  approved_at: string | null;
+  approved_by: string | null;
+  activation_starts_at: string | null;
+  activation_ends_at: string | null;
+  external_reference: string | null;
+};
+
+export type BillingEventRow = {
+  id: string;
+  created_at: string;
+  source: string;
+  stripe_event_id: string | null;
+  stripe_checkout_session_id: string | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  organization_name: string | null;
+  contact_email: string | null;
+  plan_id: string | null;
+  plan_name: string | null;
+  amount_minor: number | null;
+  currency: string | null;
+  event_type: string;
+  status: string;
+  metadata_json: string | null;
+  user_id: string | null;
+  organization_id: string | null;
+};
+
 export type CaseBundle = CaseResponse & {
   organization: OrganizationRecord;
   user: AppUser;
@@ -257,7 +358,7 @@ export type InvitationResult = {
 
 export type InviteDeliveryResult = {
   status: "manual" | "sent" | "failed";
-  channel: "manual" | "webhook";
+  channel: "manual" | "webhook" | "resend";
   detail: string;
 };
 

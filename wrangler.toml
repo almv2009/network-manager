@@ -2,14 +2,26 @@ name = "network-manager"
 compatibility_date = "2026-04-01"
 pages_build_output_dir = "./dist"
 
-# Customer-owned bindings. Replace with the organization's own resources.
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "network-manager-db"
-# database_id = "replace-with-d1-database-id"
-# preview_database_id = "replace-with-d1-preview-id"
+[vars]
+APP_BASE_URL = "https://network-manager-2zs.pages.dev"
+SESSION_TTL_HOURS = "168"
+SUPPORT_EMAIL = "admin@ataconsultancy.net"
+PLATFORM_OWNER_EMAILS = "almv2009@gmail.com"
+ENABLE_ALTERNATIVE_PAYMENTS = "true"
+ALLOWED_ALTERNATIVE_PAYMENT_METHODS = "wise,e_transfer,cheque,eft"
+MAIL_FROM_ADDRESS = "noreply@ataconsultancy.network"
+INVITE_EMAIL_SENDER = "Safeguarding Together <noreply@ataconsultancy.network>"
+MAIL_REPLY_TO_ADDRESS = "admin@ataconsultancy.net"
+ORGANIZATION_BRANDING_NAME = "Safeguarding Together Network Manager"
+DOCUMENTS_STORAGE_PROVIDER = "r2"
 
-# [[r2_buckets]]
-# binding = "DOCUMENTS_BUCKET"
-# bucket_name = "network-manager-documents"
-# preview_bucket_name = "network-manager-documents-preview"
+[[d1_databases]]
+binding = "DB"
+database_name = "network-manager-db"
+database_id = "2d4baca9-e696-4177-992c-246bc9610b8d"
+preview_database_id = "3b6a9b77-c13d-487a-ad50-eb51d10c5112"
+
+[[r2_buckets]]
+binding = "DOCUMENTS_BUCKET"
+bucket_name = "network-manager-documents"
+preview_bucket_name = "network-manager-documents-preview"

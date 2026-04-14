@@ -1,5 +1,6 @@
 import type { InvitationRecord, OrganizationRecord } from "../../shared/types";
 import { getConfig } from "./config";
+import { escapeHtml, isTransactionalEmailConfigured, sendTransactionalEmail } from "./mail";
 import type { Env, InviteDeliveryResult } from "./types";
 
 export async function deliverInvitationEmail(
@@ -12,6 +13,66 @@ export async function deliverInvitationEmail(
   },
 ): Promise<InviteDeliveryResult> {
   const config = getConfig(env);
+  if (isTransactionalEmailConfigured(env)) {
+    try {
+      await sendTransactionalEmail(env, {
+        to: input.invitation.email,
+        from: config.inviteEmailSender,
+        replyTo: config.mailReplyToAddress,
+        subject: `You have been invited to ${config.brandingName}`,
+        text: [
+          `Hello,`,
+          "",
+          `${input.invitedByName} has invited you to join ${input.organization.name} in ${config.brandingName}.`,
+          "",
+          `Use this secure invite link to sign in and access the workspace:`,
+          input.inviteUrl,
+          "",
+          `Role: ${input.invitation.userType.replaceAll("_", " ")}`,
+          input.invitation.caseRole ? `Case access: ${input.invitation.caseRole.replaceAll("_", " ")}` : "",
+          "",
+          "If you were not expecting this invitation, you can ignore this email.",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        html: [
+          "<p>Hello,</p>",
+          `<p><strong>${escapeHtml(input.invitedByName)}</strong> has invited you to join <strong>${escapeHtml(input.organization.name)}</strong> in <strong>${escapeHtml(config.brandingName)}</strong>.</p>`,
+          `<p><a href="${escapeHtml(input.inviteUrl)}">Open your secure invitation</a></p>`,
+          `<p><strong>Role:</strong> ${escapeHtml(input.invitation.userType.replaceAll("_", " "))}</p>`,
+          input.invitation.caseRole
+            ? `<p><strong>Case access:</strong> ${escapeHtml(input.invitation.caseRole.replaceAll("_", " "))}</p>`
+            : "",
+          "<p>If you were not expecting this invitation, you can ignore this email.</p>",
+        ]
+          .filter(Boolean)
+          .join(""),
+        tags: [
+          { name: "app", value: "network_manager" },
+          { name: "message_type", value: "organization_invitation" },
+        ],
+        metadata: {
+          invitation_id: input.invitation.id,
+          organization_id: input.organization.id,
+        },
+      });
+
+      return {
+        status: "sent",
+        channel: "resend",
+        detail: "Invitation email dispatched through Resend.",
+      };
+    } catch (error) {
+      if (!config.inviteEmailWebhookUrl) {
+        return {
+          status: "failed",
+          channel: "resend",
+          detail: error instanceof Error ? error.message : "Resend invitation delivery failed.",
+        };
+      }
+    }
+  }
+
   if (!config.inviteEmailWebhookUrl) {
     return {
       status: "manual",

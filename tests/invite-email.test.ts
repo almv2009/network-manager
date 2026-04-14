@@ -18,7 +18,8 @@ function env(overrides: Partial<Env> = {}): Env {
     OIDC_CLIENT_SECRET: "client-secret",
     OIDC_SCOPES: "openid profile email",
     OIDC_PROVIDER_NAME: "Test OIDC",
-    INVITE_EMAIL_SENDER: "no-reply@example.org",
+    INVITE_EMAIL_SENDER: "Safeguarding Together <noreply@ataconsultancy.network>",
+    MAIL_REPLY_TO_ADDRESS: "admin@ataconsultancy.net",
     ...overrides,
   };
 }
@@ -56,7 +57,7 @@ afterEach(() => {
 });
 
 describe("invite delivery", () => {
-  it("returns manual delivery when webhook is not configured", async () => {
+  it("returns manual delivery when webhook and resend are not configured", async () => {
     const result = await deliverInvitationEmail(env(), {
       invitation: invitation(),
       inviteUrl: "https://network-manager.example.org/sign-in?invite=token_1",
@@ -70,17 +71,47 @@ describe("invite delivery", () => {
     });
   });
 
-  it("reports sent delivery when webhook succeeds", async () => {
+  it("reports sent delivery when resend succeeds", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } }),
+      new Response(JSON.stringify({ id: "email_1" }), { status: 200, headers: { "content-type": "application/json" } }),
     ) as typeof fetch;
 
-    const result = await deliverInvitationEmail(env({ INVITE_EMAIL_WEBHOOK_URL: "https://hooks.example.org/invite" }), {
-      invitation: invitation(),
-      inviteUrl: "https://network-manager.example.org/sign-in?invite=token_1",
-      organization,
-      invitedByName: "Admin User",
-    });
+    const result = await deliverInvitationEmail(
+      env({
+        RESEND_API_KEY: "re_test_123",
+        MAIL_FROM_ADDRESS: "noreply@ataconsultancy.network",
+      }),
+      {
+        invitation: invitation(),
+        inviteUrl: "https://network-manager.example.org/sign-in?invite=token_1",
+        organization,
+        invitedByName: "Admin User",
+      },
+    );
+
+    expect(result.status).toBe("sent");
+    expect(result.channel).toBe("resend");
+  });
+
+  it("falls back to webhook when resend fails and webhook is configured", async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: "provider down" }), { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 } as ResponseInit)) as typeof fetch;
+
+    const result = await deliverInvitationEmail(
+      env({
+        RESEND_API_KEY: "re_test_123",
+        MAIL_FROM_ADDRESS: "noreply@ataconsultancy.network",
+        INVITE_EMAIL_WEBHOOK_URL: "https://hooks.example.org/invite",
+      }),
+      {
+        invitation: invitation(),
+        inviteUrl: "https://network-manager.example.org/sign-in?invite=token_1",
+        organization,
+        invitedByName: "Admin User",
+      },
+    );
 
     expect(result.status).toBe("sent");
     expect(result.channel).toBe("webhook");
