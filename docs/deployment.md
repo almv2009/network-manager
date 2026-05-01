@@ -12,6 +12,20 @@ This application is designed to run in an organization-controlled Cloudflare acc
 ### Required environment variables
 
 - `APP_BASE_URL`
+- `TENANT_DEFAULT_ID`
+- `TENANT_CONFIG_JSON` (optional JSON tenant catalog override)
+- `TENANT_ALLOW_HEADER_OVERRIDE`
+- `TENANT_HEADER_NAME`
+- `TENANT_STRICT_RESOLUTION`
+- `TENANT_BASE_HOSTS`
+- `TENANT_TRUSTED_CLAIM_HEADER`
+- `TENANT_DEFAULT_AUTH_MODE`
+- `TENANT_DEFAULT_DATABASE_MODE`
+- `TENANT_DEFAULT_STORAGE_MODE`
+- `TENANT_DEFAULT_D1_BINDING`
+- `TENANT_DEFAULT_R2_BINDING`
+- `TENANT_DEFAULT_EXTERNAL_DB_CONNECTION` (scaffold only)
+- `TENANT_DEFAULT_EXTERNAL_STORAGE_CONNECTION` (scaffold only)
 - `SESSION_SECRET`
 - `SESSION_COOKIE_NAME`
 - `SESSION_TTL_HOURS`
@@ -73,6 +87,8 @@ wrangler d1 execute NETWORK_MANAGER_DB --remote --file migrations/0002_demo_seed
 
 - OIDC callback URL must be `${APP_BASE_URL}/auth/callback`
 - sign-out is handled by `/auth/sign-out`
+- tenant runtime is resolved centrally from host/subdomain/header/claim using `functions/_lib/tenancy.ts`
+- all API/auth handlers now run through a tenant-bound runtime context (`functions/_lib/tenant-runtime.ts`)
 - organization admins must exist in the `users` table before production access can be granted
 - invitation delivery first attempts Resend when configured; if Resend is not configured or fails and `INVITE_EMAIL_WEBHOOK_URL` is set, delivery is pushed to that organization-owned webhook; otherwise the admin UI returns an invite URL for manual sharing
 - document uploads require the `DOCUMENTS_BUCKET` binding and use the configured file size and mime-type guardrails

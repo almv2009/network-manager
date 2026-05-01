@@ -3,6 +3,22 @@ import { getConfig } from "./config";
 import { escapeHtml, isTransactionalEmailConfigured, sendTransactionalEmail } from "./mail";
 import type { Env, InviteDeliveryResult } from "./types";
 
+function normalizeDomain(value: string) {
+  const trimmed = String(value || "").trim().toLowerCase();
+  if (!trimmed) return "";
+  return trimmed.startsWith("http://") || trimmed.startsWith("https://")
+    ? new URL(trimmed).hostname.toLowerCase()
+    : trimmed;
+}
+
+function compactErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "unknown provider error";
+  return String(message || "unknown provider error")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+}
+
 export async function deliverInvitationEmail(
   env: Env,
   input: {
@@ -15,21 +31,28 @@ export async function deliverInvitationEmail(
   const config = getConfig(env);
   if (isTransactionalEmailConfigured(env)) {
     try {
+      const senderDomain = normalizeDomain(config.inviteEmailSender.match(/@([^>\s]+)/)?.[1] || config.mailFromAddress);
+      const inviteDomain = normalizeDomain(input.inviteUrl);
       await sendTransactionalEmail(env, {
         to: input.invitation.email,
         from: config.inviteEmailSender,
         replyTo: config.mailReplyToAddress,
-        subject: `You have been invited to ${config.brandingName}`,
+        subject: `${input.organization.name}: your secure invitation`,
         text: [
           `Hello,`,
           "",
           `${input.invitedByName} has invited you to join ${input.organization.name} in ${config.brandingName}.`,
           "",
-          `Use this secure invite link to sign in and access the workspace:`,
+          `Open your secure invitation link to access the workspace:`,
           input.inviteUrl,
           "",
           `Role: ${input.invitation.userType.replaceAll("_", " ")}`,
           input.invitation.caseRole ? `Case access: ${input.invitation.caseRole.replaceAll("_", " ")}` : "",
+          "",
+          `Expected sender domain: ${senderDomain || "not set"}`,
+          `Expected invite-link domain: ${inviteDomain || "not set"}`,
+          "",
+          `Need help? Reply to ${config.mailReplyToAddress}.`,
           "",
           "If you were not expecting this invitation, you can ignore this email.",
         ]
@@ -43,10 +66,17 @@ export async function deliverInvitationEmail(
           input.invitation.caseRole
             ? `<p><strong>Case access:</strong> ${escapeHtml(input.invitation.caseRole.replaceAll("_", " "))}</p>`
             : "",
+          `<p><strong>Expected sender domain:</strong> ${escapeHtml(senderDomain || "not set")}</p>`,
+          `<p><strong>Expected invite-link domain:</strong> ${escapeHtml(inviteDomain || "not set")}</p>`,
+          `<p>If you need support, reply to ${escapeHtml(config.mailReplyToAddress)}.</p>`,
           "<p>If you were not expecting this invitation, you can ignore this email.</p>",
         ]
           .filter(Boolean)
           .join(""),
+        headers: {
+          "Auto-Submitted": "auto-generated",
+          "X-Auto-Response-Suppress": "All",
+        },
         tags: [
           { name: "app", value: "network_manager" },
           { name: "message_type", value: "organization_invitation" },
@@ -63,66 +93,30 @@ export async function deliverInvitationEmail(
         detail: "Invitation email dispatched through Resend.",
       };
     } catch (error) {
-      if (!config.inviteEmailWebhookUrl) {
-        return {
-          status: "failed",
-          channel: "resend",
-          detail: error instanceof Error ? error.message : "Resend invitation delivery failed.",
-        };
-      }
+      const providerMessage = compactErrorMessage(error);
+      console.error(
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          category: "security",
+          event: "invite_delivery_failed",
+          invitationId: input.invitation.id,
+          organizationId: input.organization.id,
+          provider: "resend",
+          errorName: error instanceof Error ? error.name : "unknown_error",
+          errorMessage: error instanceof Error ? error.message : "unknown_error",
+        }),
+      );
+      return {
+        status: "failed",
+        channel: "resend",
+        detail: `Invitation email could not be delivered: ${providerMessage}. Verify Resend configuration and sender-domain setup.`,
+      };
     }
   }
 
-  if (!config.inviteEmailWebhookUrl) {
-    return {
-      status: "manual",
-      channel: "manual",
-      detail: "No invite email webhook is configured. Share the invite URL through organization-owned messaging.",
-    };
-  }
-
-  const response = await fetch(config.inviteEmailWebhookUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(config.inviteEmailWebhookBearerToken
-        ? { authorization: `Bearer ${config.inviteEmailWebhookBearerToken}` }
-        : {}),
-    },
-    body: JSON.stringify({
-      type: "network_manager_invitation",
-      organization: {
-        id: input.organization.id,
-        name: input.organization.name,
-      },
-      invitation: {
-        id: input.invitation.id,
-        email: input.invitation.email,
-        userType: input.invitation.userType,
-        caseId: input.invitation.caseId,
-        caseRole: input.invitation.caseRole,
-        inviteUrl: input.inviteUrl,
-        invitedAt: input.invitation.invitedAt,
-      },
-      sender: {
-        name: input.invitedByName,
-        email: config.inviteEmailSender,
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const detail = await response.text();
-    return {
-      status: "failed",
-      channel: "webhook",
-      detail: detail || `Invite email webhook failed with ${response.status}.`,
-    };
-  }
-
   return {
-    status: "sent",
-    channel: "webhook",
-    detail: "Invitation email dispatched through the configured organization-owned webhook.",
+    status: "manual",
+    channel: "manual",
+    detail: "Resend invite delivery is not configured. Share the invite URL through organization-owned messaging.",
   };
 }

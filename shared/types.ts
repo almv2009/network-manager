@@ -7,6 +7,10 @@ export type UserType =
 
 export type CaseStatus = "open" | "closed";
 
+export type FamilyManagedHandoverStatus = "not_started" | "planned" | "active";
+
+export type FamilyManagedHandoverLeadRole = "" | "caregiver" | "network_member";
+
 export type CaseMembershipRole =
   | "supervisor"
   | "worker"
@@ -128,6 +132,12 @@ export type CaseState = {
   currentPhaseLabel: string;
   postClosureContinuity: string;
   networkSelfManagementTools: string;
+  familyManagedHandoverStatus: FamilyManagedHandoverStatus;
+  familyManagedHandoverLeadMembershipId: string;
+  familyManagedHandoverLeadName: string;
+  familyManagedHandoverLeadRole: FamilyManagedHandoverLeadRole;
+  familyManagedHandoverActivatedAt: string;
+  familyManagedHandoverNotes: string;
   caregiverSummary: string;
   currentWatchpoint: string;
   planStability: number;
@@ -243,10 +253,13 @@ export type SessionPayload = {
     name: string;
     logoUrl: string | null;
   };
+  license: OrganizationLicenseSummary;
   accessibleCases: CaseSummary[];
   permissions: {
     isOrgAdmin: boolean;
     canManageOrganization: boolean;
+    isPlatformOwner?: boolean;
+    canManagePlatform?: boolean;
   };
 };
 
@@ -270,9 +283,197 @@ export type AccessDeniedReason =
   | "auth_required"
   | "auth_not_configured"
   | "org_admin_required"
+  | "platform_owner_required"
+  | "organization_unlicensed"
+  | "organization_archived"
   | "organization_membership_required"
   | "case_membership_required"
   | "case_closed_worker_access_revoked"
   | "case_closed_supervisor_access_revoked"
   | "inactive_user"
   | "user_not_provisioned";
+
+export type DeploymentReadinessStatus = "ready" | "warning" | "missing";
+
+export interface DeploymentReadinessCheck {
+  key: string;
+  label: string;
+  required: boolean;
+  status: DeploymentReadinessStatus;
+  detail: string;
+  missing: string[];
+}
+
+export interface DeploymentReadinessReport {
+  generatedAt: string;
+  ready: boolean;
+  checks: DeploymentReadinessCheck[];
+}
+
+export const NETWORK_BILLING_PLAN_KEYS = [
+  "team",
+  "small_organization",
+  "medium_organization",
+  "large_organization",
+] as const;
+export type NetworkBillingPlanKey = (typeof NETWORK_BILLING_PLAN_KEYS)[number];
+
+export const ALTERNATIVE_PAYMENT_METHODS = ["wise", "e_transfer", "cheque", "eft"] as const;
+export type AlternativePaymentMethod = (typeof ALTERNATIVE_PAYMENT_METHODS)[number];
+
+export const ALTERNATIVE_PAYMENT_REQUEST_STATUSES = [
+  "submitted",
+  "reviewing",
+  "awaiting_payment",
+  "paid",
+  "activated",
+  "rejected",
+  "cancelled",
+] as const;
+export type AlternativePaymentRequestStatus = (typeof ALTERNATIVE_PAYMENT_REQUEST_STATUSES)[number];
+
+export interface NetworkBillingPlanOption {
+  key: NetworkBillingPlanKey;
+  label: string;
+  summary: string;
+  bestFor: string;
+  value: string;
+  featureBullets: string[];
+  availableForCheckout: boolean;
+}
+
+export interface SupportTicketPayload {
+  fullName: string;
+  email: string;
+  organizationName?: string;
+  summary: string;
+  details: string;
+  stepsToReproduce?: string;
+  expectedOutcome?: string;
+  actualOutcome?: string;
+  currentPath?: string;
+  activeTab?: string;
+  screenshotName?: string;
+  screenshotContentType?: string;
+  screenshotDataUrl?: string;
+  turnstileToken?: string;
+}
+
+export interface SupportTicketRecord extends SupportTicketPayload {
+  id: string;
+  createdAt: string;
+  targetEmail: string;
+  status: "submitted";
+}
+
+export interface SupportTicketResponse {
+  message: string;
+  supportEmail: string;
+  mailtoUrl: string;
+  ticket: SupportTicketRecord;
+}
+
+export interface BillingCheckoutPayload {
+  fullName: string;
+  organizationName: string;
+  email: string;
+  requestedPlan: NetworkBillingPlanKey;
+  seatCount: number;
+  turnstileToken?: string;
+}
+
+export interface BillingCheckoutResponse {
+  url: string;
+  message: string;
+}
+
+export interface AlternativePaymentRequestPayload {
+  fullName: string;
+  organizationName: string;
+  email: string;
+  requestedPlan: NetworkBillingPlanKey;
+  seatCount: number;
+  preferredPaymentMethod: AlternativePaymentMethod;
+  country: string;
+  region?: string;
+  poNumber?: string;
+  notes?: string;
+  turnstileToken?: string;
+}
+
+export interface AlternativePaymentRequestRecord extends AlternativePaymentRequestPayload {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  planName: string;
+  requestStatus: AlternativePaymentRequestStatus;
+  adminNotes?: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  activationStartsAt?: string;
+  activationEndsAt?: string;
+  externalReference?: string;
+  organizationId?: string;
+  userId?: string;
+}
+
+export interface AlternativePaymentRequestResponse {
+  request: AlternativePaymentRequestRecord;
+  message: string;
+}
+
+export interface BillingEventRecord {
+  id: string;
+  createdAt: string;
+  source: "stripe" | "manual";
+  eventType: string;
+  status: string;
+  organizationName?: string;
+  contactEmail?: string;
+  planId?: string;
+  planName?: string;
+  stripeEventId?: string;
+  stripeCheckoutSessionId?: string;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  amountMinor?: number;
+  currency?: string;
+  metadataJson: Record<string, unknown>;
+}
+
+export interface OrganizationLicenseSummary {
+  organizationId: string;
+  organizationName: string;
+  licensedSeatCount: number | null;
+  licensedPlanName?: string;
+  licenseStatus?: string;
+  accessState: "licensed" | "trial" | "paused" | "unlicensed" | "archived";
+  isLicensed: boolean;
+  licenseGateMessage: string;
+  activeUsers: number;
+  pausedUsers: number;
+  pendingInvitations: number;
+  openCases: number;
+  remainingSeats: number | null;
+  remainingProvisioningSlots: number | null;
+}
+
+export interface PlatformOwnerOrganizationSummary extends OrganizationLicenseSummary {
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlatformOwnerUserRecord extends AppUser {
+  organizationName: string;
+}
+
+export interface PlatformOwnerOverview {
+  organizations: PlatformOwnerOrganizationSummary[];
+  users: PlatformOwnerUserRecord[];
+  auditEvents: AuditEventRecord[];
+  supportTickets: SupportTicketRecord[];
+  billingEvents: BillingEventRecord[];
+  alternativePaymentRequests: AlternativePaymentRequestRecord[];
+  deploymentReadiness: DeploymentReadinessReport;
+}

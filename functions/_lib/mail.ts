@@ -11,6 +11,7 @@ export type TransactionalEmailPayload = {
   text?: string;
   html?: string;
   replyTo?: string;
+  headers?: Record<string, string>;
   tags?: Array<{ name: string; value: string }>;
   metadata?: Record<string, string>;
 };
@@ -79,6 +80,7 @@ export async function sendTransactionalEmail(env: Env, payload: TransactionalEma
     text: textBody,
     html: htmlBody,
     replyTo: replyToAddress,
+    headers: payload.headers,
     tags: composedTags.length ? composedTags : undefined,
   });
 

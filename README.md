@@ -1,37 +1,19 @@
 # Network Manager
 
-Network Manager is an organization-owned safeguarding workspace designed for enterprise deployment. It now assumes authenticated access, organization-owned identity, backend case authorization, audit logging, and a formal case-closure workflow.
+Network Manager is a safeguarding workspace for licensed organizations. The current production model is ATA-hosted multi-tenant infrastructure with organization-scoped access, backend authorization, audit logging, and a formal case-closure workflow.
 
-## Customer-owned tenant deployment model
+## Current hosting model
 
-### What the organization owns
+- ATA-managed application hosting
+- ATA-managed database and document storage bindings
+- organization-level tenant isolation
+- role-based and case-membership-based access control
+- platform owner controls organization licensing
+- organization admins control user allocation, invitations, and access inside their organization
 
-- identity provider configuration and user lifecycle
-- OIDC application registration and secrets
-- database
-- storage bucket or container
-- audit log retention and monitoring
-- environment variables and branding
-- deployment account and security controls
+See:
 
-### What the vendor provides
-
-- application code
-- OIDC-ready auth abstraction
-- backend authorization rules
-- admin UI and API structure
-- migration scripts
-- deployment packaging and documentation
-
-### What must be configured per organization
-
-- OIDC issuer URL, client ID, and client secret
-- session secret
-- D1 database binding
-- document storage binding
-- organization branding variables
-- case-closure supervisor policy
-- invite email integration if email delivery is required
+- [docs/hosting-and-tenancy.md](./docs/hosting-and-tenancy.md)
 
 ## Architecture summary
 
@@ -42,13 +24,16 @@ Network Manager is an organization-owned safeguarding workspace designed for ent
 - backend role and case-state authorization
 - organization-admin invitation and case-access management
 - document upload endpoint backed by organization-owned object storage
-- invite delivery webhook scaffold for organization-owned messaging systems
+- provider-neutral invite delivery service (Resend primary, organization-owned webhook fallback)
 
 ## Runtime modes
 
+- default runtime
+  - enterprise
+  - the app now boots into the authenticated enterprise workspace unless `VITE_APP_RUNTIME=standalone` is set explicitly
 - `VITE_APP_RUNTIME=standalone`
   - local single-workspace UI
-  - safe default for environments that do not yet have enterprise auth configured
+  - local fallback for design work or environments that do not yet have enterprise auth configured
 - `VITE_APP_RUNTIME=enterprise`
   - enables sign-in, backend case loading, admin routes, and enterprise authorization
   - should only be deployed where OIDC, D1, session secret, and any required storage bindings are configured
@@ -57,8 +42,11 @@ Network Manager is an organization-owned safeguarding workspace designed for ent
 
 - unauthenticated users are redirected to `/sign-in`
 - access is scoped by organization, case membership, user role, and case status
+- organization admins can view all organization cases
+- workers and supervisors can create private cases that appear in their own case roster by default
 - workers lose access automatically when a case is closed
 - caregivers and active network members retain access after closure
+- caregivers and network members can continue updating the closed-case workspace when their access remains active after closure
 - supervisors lose routine access after closure unless enabled by organization policy
 - organization admins manage users, invitations, and case memberships
 - localStorage is no longer the source of truth for case data

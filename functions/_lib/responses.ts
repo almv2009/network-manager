@@ -1,6 +1,9 @@
 export function json(data: unknown, init: ResponseInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("content-type", "application/json; charset=utf-8");
+  if (!headers.has("cache-control")) {
+    headers.set("cache-control", "private, no-store");
+  }
   return new Response(JSON.stringify(data, null, 2), {
     ...init,
     headers,

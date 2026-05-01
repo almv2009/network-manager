@@ -27,4 +27,4 @@ Example flow:
 - invitations are created by admins or authorized workers
 - invited users are tied to an organization and optionally a case
 - if the invited user does not exist yet, the first successful sign-in can create and bind the user automatically
-- email delivery is not hard-coded to a vendor mailbox; if `INVITE_EMAIL_WEBHOOK_URL` is configured the backend posts invite payloads to the organization-owned mail/workflow system, otherwise the admin UI returns an invite URL for manual sharing
+- email delivery is not hard-coded to a vendor mailbox; the backend uses Resend when configured, falls back to an organization-owned webhook if `INVITE_EMAIL_WEBHOOK_URL` is set, and otherwise returns an invite URL for manual sharing

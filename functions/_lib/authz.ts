@@ -68,14 +68,34 @@ export function canAccessCase(context: CaseAccessContext): AccessDecision {
 export function canEditCaseState(caseRecord: CaseSummary, membership: CaseMembershipRecord | null, user: AppUser) {
   if (user.userType === "org_admin") return true;
   if (!membership || !membership.active) return false;
-  if (caseRecord.status === "closed") return false;
+  if (caseRecord.status === "closed") {
+    return membership.role === "caregiver" || membership.role === "network_member";
+  }
   return membership.role === "worker" || membership.role === "supervisor";
 }
 
 export function canCloseCase(caseRecord: CaseSummary, membership: CaseMembershipRecord | null, user: AppUser) {
   if (caseRecord.status === "closed") return false;
+  if (!membership || !membership.active) return false;
+  return membership.role === "supervisor" || membership.role === "worker";
+}
+
+export function canDeleteCase(caseRecord: CaseSummary, membership: CaseMembershipRecord | null, user: AppUser) {
+  if (caseRecord.status === "closed") return false;
   if (user.userType === "org_admin") return true;
-  return Boolean(membership && membership.active && membership.role === "supervisor");
+  if (!membership || !membership.active) return false;
+  return membership.role === "supervisor" || membership.role === "worker";
+}
+
+export function canCreateCases(user: AppUser): AccessDecision {
+  if (user.userType === "worker" || user.userType === "supervisor") {
+    return { allowed: true };
+  }
+  return {
+    allowed: false,
+    reason: "case_membership_required",
+    hint: "Only practitioners (workers and supervisors) can create cases in this workspace.",
+  };
 }
 
 export function canManageMemberships(membership: CaseMembershipRecord | null, user: AppUser) {
@@ -106,6 +126,15 @@ export function requireOrgAdmin(user: AppUser): AccessDecision {
     allowed: false,
     reason: "org_admin_required",
     hint: "Only organization administrators can access this area.",
+  };
+}
+
+export function requirePlatformOwner(permissions: { isPlatformOwner?: boolean }): AccessDecision {
+  if (permissions.isPlatformOwner) return { allowed: true };
+  return {
+    allowed: false,
+    reason: "platform_owner_required",
+    hint: "Only the platform owner can access this area.",
   };
 }
 

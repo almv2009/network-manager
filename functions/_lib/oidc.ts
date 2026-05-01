@@ -52,7 +52,10 @@ export async function getDiscovery(env: Env) {
   return discoveryCache;
 }
 
-export async function beginOidcSignIn(env: Env, options: { returnTo?: string | null; inviteToken?: string | null }) {
+export async function beginOidcSignIn(
+  env: Env,
+  options: { returnTo?: string | null; inviteToken?: string | null; baseUrlOverride?: string | null },
+) {
   const config = getConfig(env);
   const discovery = await getDiscovery(env);
   const state = randomString(32);
@@ -70,9 +73,10 @@ export async function beginOidcSignIn(env: Env, options: { returnTo?: string | n
     issuedAt: new Date().toISOString(),
   };
   const cookieValue = await sealCookieValue(config.sessionSecret, authFlow);
+  const resolvedBaseUrl = String(options.baseUrlOverride || config.appBaseUrl).trim().replace(/\/+$/g, "");
   const authUrl = new URL(discovery.authorization_endpoint);
   authUrl.searchParams.set("client_id", config.oidcClientId);
-  authUrl.searchParams.set("redirect_uri", `${config.appBaseUrl}/auth/callback`);
+  authUrl.searchParams.set("redirect_uri", `${resolvedBaseUrl}/auth/callback`);
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("scope", config.oidcScopes);
   authUrl.searchParams.set("state", state);
@@ -85,8 +89,13 @@ export async function beginOidcSignIn(env: Env, options: { returnTo?: string | n
   };
 }
 
-export async function consumeOidcCallback(env: Env, request: Request) {
+export async function consumeOidcCallback(
+  env: Env,
+  request: Request,
+  options: { baseUrlOverride?: string | null } = {},
+) {
   const config = getConfig(env);
+  const resolvedBaseUrl = String(options.baseUrlOverride || config.appBaseUrl).trim().replace(/\/+$/g, "");
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -109,7 +118,7 @@ export async function consumeOidcCallback(env: Env, request: Request) {
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      redirect_uri: `${config.appBaseUrl}/auth/callback`,
+      redirect_uri: `${resolvedBaseUrl}/auth/callback`,
       client_id: config.oidcClientId,
       client_secret: config.oidcClientSecret,
       code_verifier: cookieState.codeVerifier,

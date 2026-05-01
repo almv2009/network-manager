@@ -51,9 +51,11 @@ export interface R2ObjectBody {
 export interface R2Bucket {
   get(key: string): Promise<R2ObjectBody | null>;
   put(key: string, value: string | ArrayBuffer | ArrayBufferView | Blob | ReadableStream, options?: R2PutOptions): Promise<void>;
+  delete?(key: string | string[]): Promise<void>;
 }
 
 export type Env = {
+  [key: string]: unknown;
   DB: D1Database;
   DOCUMENTS_BUCKET?: R2Bucket;
   APP_BASE_URL: string;
@@ -80,7 +82,25 @@ export type Env = {
   RESEND_FROM_EMAIL?: string;
   RESEND_REPLY_TO?: string;
   SUPPORT_EMAIL?: string;
+  TURNSTILE_SECRET_KEY?: string;
+  TURNSTILE_EXPECTED_HOSTNAME?: string;
+  TURNSTILE_ENFORCE_AUTH?: string;
+  TURNSTILE_ENFORCE_PUBLIC_POSTS?: string;
   PLATFORM_OWNER_EMAILS?: string;
+  TENANT_DEFAULT_ID?: string;
+  TENANT_CONFIG_JSON?: string;
+  TENANT_ALLOW_HEADER_OVERRIDE?: string;
+  TENANT_HEADER_NAME?: string;
+  TENANT_STRICT_RESOLUTION?: string;
+  TENANT_DEFAULT_D1_BINDING?: string;
+  TENANT_DEFAULT_R2_BINDING?: string;
+  TENANT_BASE_HOSTS?: string;
+  TENANT_TRUSTED_CLAIM_HEADER?: string;
+  TENANT_DEFAULT_AUTH_MODE?: string;
+  TENANT_DEFAULT_DATABASE_MODE?: string;
+  TENANT_DEFAULT_STORAGE_MODE?: string;
+  TENANT_DEFAULT_EXTERNAL_DB_CONNECTION?: string;
+  TENANT_DEFAULT_EXTERNAL_STORAGE_CONNECTION?: string;
   ENABLE_ALTERNATIVE_PAYMENTS?: string;
   ALLOWED_ALTERNATIVE_PAYMENT_METHODS?: string;
   STRIPE_SECRET_KEY?: string;

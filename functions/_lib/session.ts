@@ -1,4 +1,4 @@
-import { getConfig } from "./config";
+import { getConfig, isPlatformOwnerEmail } from "./config";
 import { audit } from "./audit";
 import { clearCookie, parseCookies } from "./cookies";
 import { createId, first, getOrganizationById, getUserById } from "./db";
@@ -96,6 +96,8 @@ export async function resolveSession(request: Request, env: Env, db: D1Database)
   const organization = await getOrganizationById(db, session.organization_id);
   if (!user || !organization) return null;
 
+  const isPlatformOwner = user.userType === "org_admin" && isPlatformOwnerEmail(env, user.email);
+
   return {
     session,
     user,
@@ -103,6 +105,8 @@ export async function resolveSession(request: Request, env: Env, db: D1Database)
     permissions: {
       isOrgAdmin: user.userType === "org_admin",
       canManageOrganization: user.userType === "org_admin",
+      isPlatformOwner,
+      canManagePlatform: isPlatformOwner,
     },
   };
 }

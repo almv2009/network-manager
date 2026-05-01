@@ -1,4 +1,5 @@
 import type { DeploymentReadinessCheck, DeploymentReadinessReport } from "../../shared/types";
+import { getTenantReadinessCheck } from "./tenancy";
 import type { Env } from "./types";
 
 export type AppConfig = {
@@ -104,6 +105,16 @@ export function getAuthMode(env: Env): AuthMode {
 export function getDeploymentReadiness(env: Env): DeploymentReadinessReport {
   const config = getConfig(env);
   const checks: DeploymentReadinessCheck[] = [];
+  const tenantReadiness = getTenantReadinessCheck(env);
+
+  checks.push({
+    key: "tenant_runtime",
+    label: "Tenant runtime configuration",
+    required: true,
+    status: tenantReadiness.status,
+    detail: tenantReadiness.detail,
+    missing: tenantReadiness.missing,
+  });
 
   const dbBound = Boolean(env.DB && typeof env.DB.prepare === "function");
   checks.push({
@@ -164,24 +175,21 @@ export function getDeploymentReadiness(env: Env): DeploymentReadinessReport {
     missing: documentsConfigured ? [] : ["DOCUMENTS_BUCKET"],
   });
 
-  const webhookConfigured = Boolean(config.inviteEmailWebhookUrl);
   const resendConfigured = Boolean(
     optionalValue(env.RESEND_API_KEY) &&
       optionalValue(env.MAIL_FROM_ADDRESS || env.RESEND_FROM_EMAIL),
   );
-  const emailMissing = webhookConfigured || resendConfigured
+  const emailMissing = resendConfigured
     ? []
-    : ["INVITE_EMAIL_WEBHOOK_URL or RESEND_API_KEY", "MAIL_FROM_ADDRESS"];
+    : ["RESEND_API_KEY", "MAIL_FROM_ADDRESS"];
   checks.push({
     key: "invite_delivery",
     label: "Invitation email delivery",
     required: false,
-    status: webhookConfigured || resendConfigured ? "ready" : "warning",
-    detail: webhookConfigured
-      ? "Invitations will be delivered through the configured webhook."
-      : resendConfigured
-        ? "Invitations will be delivered through Resend."
-        : "No webhook or Resend mail delivery is configured. Admins will need to share invite URLs manually.",
+    status: resendConfigured ? "ready" : "warning",
+    detail: resendConfigured
+      ? "Invitations are delivered through Resend."
+      : "Resend mail delivery is not configured. Admins will need to share invite URLs manually.",
     missing: emailMissing,
   });
 
@@ -195,6 +203,18 @@ export function getDeploymentReadiness(env: Env): DeploymentReadinessReport {
       ? `Support contact is set to ${supportEmail}.`
       : "SUPPORT_EMAIL is not set. The app will fall back to the built-in default support address.",
     missing: supportEmail ? [] : ["SUPPORT_EMAIL"],
+  });
+
+  const turnstileConfigured = Boolean(optionalValue(env.TURNSTILE_SECRET_KEY));
+  checks.push({
+    key: "bot_protection",
+    label: "Bot and abuse protection",
+    required: false,
+    status: turnstileConfigured ? "ready" : "warning",
+    detail: turnstileConfigured
+      ? "Turnstile secret is configured. Enable enforcement flags when client tokens are wired."
+      : "TURNSTILE_SECRET_KEY is not set. Configure Turnstile for public-form and sign-in abuse controls.",
+    missing: turnstileConfigured ? [] : ["TURNSTILE_SECRET_KEY"],
   });
 
   return {

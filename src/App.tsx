@@ -149,6 +149,9 @@ type AppData = {
 
   caseStatus: string;
   familyName: string;
+  motherName: string;
+  fatherName: string;
+  childrenNames: string;
   leadPractitioner: string;
   caseStartDate: string;
   caregiverSummary: string;
@@ -217,6 +220,13 @@ const WORST_CASE_SCENARIOS = [
   "Key information is being hidden, the network cannot get a clear picture of what is happening, or trust has broken down to the point that the plan cannot be relied on.",
   "Emergency services, school, medical staff, or other professionals raise serious safeguarding concerns that the network cannot safely manage alone.",
 ];
+
+const CAREGIVER_ROLE_ASSIGNMENT_OPTIONS = [
+  "Long Term Safeguarding",
+  "Short Term Safeguarding",
+  "Long Term Support",
+  "Short Term Support",
+] as const;
 
 function makeId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -444,6 +454,9 @@ const defaultData: AppData = {
 
   caseStatus: "Open",
   familyName: "Miller Family",
+  motherName: "Anna Miller",
+  fatherName: "Michael Miller",
+  childrenNames: "Liam Miller\nMia Miller",
   leadPractitioner: "Practitioner Name",
   caseStartDate: "2026-03-30",
   caregiverSummary:
@@ -717,6 +730,9 @@ function loadInitialData(): AppData {
     return {
       ...defaultData,
       ...parsed,
+      motherName: String(parsed.motherName ?? defaultData.motherName),
+      fatherName: String(parsed.fatherName ?? defaultData.fatherName),
+      childrenNames: String(parsed.childrenNames ?? defaultData.childrenNames),
       planStability: clampScale(Number(parsed.planStability ?? defaultData.planStability)),
       safeguardingScale: clampScale(Number(parsed.safeguardingScale ?? defaultData.safeguardingScale)),
       timelineEntries: (parsed.timelineEntries as TimelineEntry[]) ?? defaultData.timelineEntries,
@@ -1464,6 +1480,12 @@ export default function App() {
                       <Field label="Family name">
                         <input value={data.familyName} onChange={(e) => updateField("familyName", e.target.value)} className="input" />
                       </Field>
+                      <Field label="Mother name">
+                        <input value={data.motherName} onChange={(e) => updateField("motherName", e.target.value)} className="input" />
+                      </Field>
+                      <Field label="Father name">
+                        <input value={data.fatherName} onChange={(e) => updateField("fatherName", e.target.value)} className="input" />
+                      </Field>
                       <Field label="Lead practitioner">
                         <input value={data.leadPractitioner} onChange={(e) => updateField("leadPractitioner", e.target.value)} className="input" />
                       </Field>
@@ -1471,6 +1493,9 @@ export default function App() {
                         <input value={data.caseStartDate} onChange={(e) => updateField("caseStartDate", e.target.value)} className="input" />
                       </Field>
                     </div>
+                    <Field label="Children names (one per line)">
+                      <textarea value={data.childrenNames} onChange={(e) => updateField("childrenNames", e.target.value)} className="textarea" />
+                    </Field>
                     <Field label="Caregiver summary">
                       <textarea value={data.caregiverSummary} onChange={(e) => updateField("caregiverSummary", e.target.value)} className="textarea" />
                     </Field>
@@ -1678,7 +1703,17 @@ export default function App() {
                             <input value={person.relationship} onChange={(e) => updateNetworkMember(person.id, "relationship", e.target.value)} className="input" />
                           </Field>
                           <Field label="Role">
-                            <input value={person.role} onChange={(e) => updateNetworkMember(person.id, "role", e.target.value)} className="input" />
+                            <select value={person.role} onChange={(e) => updateNetworkMember(person.id, "role", e.target.value)} className="input">
+                              <option value="">Choose role assignment</option>
+                              {CAREGIVER_ROLE_ASSIGNMENT_OPTIONS.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                              {person.role && !CAREGIVER_ROLE_ASSIGNMENT_OPTIONS.includes(person.role as (typeof CAREGIVER_ROLE_ASSIGNMENT_OPTIONS)[number]) ? (
+                                <option value={person.role}>{person.role} (existing)</option>
+                              ) : null}
+                            </select>
                           </Field>
                           <Field label="Availability">
                             <input value={person.availability} onChange={(e) => updateNetworkMember(person.id, "availability", e.target.value)} className="input" />
@@ -2322,7 +2357,7 @@ export default function App() {
                 </details>
               </Card>
 
-              <Card title="Worst Case Scenario">
+              <Card title="Safeguarding Breakdown Scenario">
                 <div className="space-y-3">
                   <p className="text-sm text-slate-600">
                     The family and network must call child welfare for help immediately if any of the following situations or conditions occur.

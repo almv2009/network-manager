@@ -9,6 +9,7 @@ import type {
 import {
   canAccessCase,
   canCloseCase,
+  canCreateCases,
   canEditCaseState,
   canPostJournal,
   requireOrgAdmin,
@@ -146,6 +147,8 @@ describe("authorization rules", () => {
     expect(canEditCaseState(caseRecord({ status: "open" }), membership({ role: "worker" }), user({ userType: "worker" }))).toBe(true);
     expect(canEditCaseState(caseRecord({ status: "open" }), membership({ role: "caregiver" }), user({ userType: "caregiver" }))).toBe(false);
     expect(canEditCaseState(caseRecord({ status: "closed" }), membership({ role: "supervisor" }), user({ userType: "supervisor" }))).toBe(false);
+    expect(canEditCaseState(caseRecord({ status: "closed" }), membership({ role: "caregiver" }), user({ userType: "caregiver" }))).toBe(true);
+    expect(canEditCaseState(caseRecord({ status: "closed" }), membership({ role: "network_member" }), user({ userType: "network_member" }))).toBe(true);
   });
 
   it("blocks worker and supervisor journal posting after closure while keeping caregiver access", () => {
@@ -168,5 +171,12 @@ describe("authorization rules", () => {
       allowed: false,
       reason: "org_admin_required",
     });
+  });
+
+  it("allows org admins, workers, and supervisors to create cases", () => {
+    expect(canCreateCases(user({ userType: "org_admin" }))).toEqual({ allowed: true });
+    expect(canCreateCases(user({ userType: "worker" }))).toEqual({ allowed: true });
+    expect(canCreateCases(user({ userType: "supervisor" }))).toEqual({ allowed: true });
+    expect(canCreateCases(user({ userType: "caregiver" }))).toMatchObject({ allowed: false });
   });
 });
